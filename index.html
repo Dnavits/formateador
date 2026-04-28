@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PagosXLSS — Formateador (seguro)</title>
+<title>PagosXLS — Formateador EXACTO (sin modificar datos)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
-/* Mismo CSS que antes, sin cambios */
+/* Estilos (mismos que antes, sin cambios relevantes) */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{ --bg:#080810; --surface:rgba(255,255,255,0.04); --surface2:rgba(255,255,255,0.07); --border:rgba(255,255,255,0.08); --border2:rgba(255,255,255,0.14); --text:#f0f0f8; --muted:rgba(255,255,255,0.4); --accent:#4f7fff; --glow1:#4f7fff; --glow2:#b94fff; --green:#22c97a; --red:#ff5c5c; --yellow:#ffb347; }
 html{scroll-behavior:smooth}
@@ -158,104 +158,81 @@ const successWrap=$('success-wrap'),recCount=$('rec-count'),btnReset=$('btn-rese
 const errorWrap=$('error-wrap'),warningDiv=$('warning-area')
 const fmtSize=b=>b>1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB'
 
-// ---------- FUNCIÓN ROBUSTA DE FECHAS (NO MODIFICA OTROS DATOS) ----------
-function parseDateValue(valor) {
-  if (!valor && valor !== 0) return null;
-  if (valor instanceof Date && !isNaN(valor)) return valor;
-  if (typeof valor === 'number') {
-    if (typeof XLSX !== 'undefined' && XLSX.SSF && XLSX.SSF.parse_date_code) {
-      try {
-        const d = XLSX.SSF.parse_date_code(valor);
-        return new Date(d.y, d.m - 1, d.d);
-      } catch(e) {}
-    }
-    const excelEpoch = new Date(1899, 11, 30);
-    let days = Math.floor(valor);
-    if (days > 59) days -= 1;
-    let d = new Date(excelEpoch.getTime() + days * 86400000);
-    if (!isNaN(d)) return d;
-    return valor;
-  }
-  if (typeof valor === 'string') {
-    let s = valor.trim();
-    let matches = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
-    if (matches) {
-      let d = new Date(parseInt(matches[3]), parseInt(matches[2])-1, parseInt(matches[1]));
-      if (!isNaN(d)) return d;
-    }
-    let iso = new Date(s);
-    if (!isNaN(iso)) return iso;
-    return valor;
-  }
-  return valor;
+// ==================== FUNCIÓN PARA CONVERTIR FECHA SERIAL DE EXCEL A DATE (SIN TIMEZONE) ====================
+function excelSerialToDate(serial) {
+  if (typeof serial !== 'number') return serial;
+  // Excel cuenta días desde 1900-01-01, pero tiene un bug: considera 1900 como bisiesto
+  const excelEpoch = new Date(1899, 11, 30); // 1899-12-30
+  const msPerDay = 86400000;
+  let days = Math.floor(serial);
+  if (days > 59) days -= 1; // corrección del bug de Excel
+  const date = new Date(excelEpoch.getTime() + days * msPerDay);
+  // Ajustar para mantener la hora en 00:00:00 local (sin offset UTC)
+  // Simplemente devolvemos el Date, luego al escribir con ExcelJS se respetará la parte de fecha sin hora
+  return date;
 }
 
-// ---------- VALIDACIÓN DE ENCABEZADOS (ninguna celda vacía) ----------
-function validateHeaders(headerRow) {
-  let lastCol = -1;
-  for (let i = 0; i < headerRow.length; i++) {
-    if (headerRow[i] !== undefined && headerRow[i] !== null && String(headerRow[i]).trim() !== '') {
-      lastCol = i;
-    }
-  }
-  if (lastCol === -1) throw new Error('La fila de encabezados está completamente vacía.');
-  
-  const emptyCols = [];
-  for (let i = 0; i <= lastCol; i++) {
-    let val = headerRow[i];
-    if (val === undefined || val === null || String(val).trim() === '') {
-      emptyCols.push(i+1);
-    }
-  }
-  if (emptyCols.length > 0) {
-    throw new Error(`⚠️ Las siguientes columnas tienen el encabezado vacío: ${emptyCols.join(', ')}. Todas las columnas deben tener un nombre en la primera fila.`);
-  }
-  return true;
-}
-
-// ---------- MAPEO PRECISO DE COLUMNAS (coincidencia exacta primero) ----------
-function mapColumns(headerRow) {
-  // Normalizar: convertir a string, trim, mayúsculas
-  const norm = headerRow.map(cell => (cell !== undefined && cell !== null) ? String(cell).trim().toUpperCase() : '');
-  
-  const findColumn = (keywords, exactMatch = true) => {
-    // Primero intentar coincidencia exacta (normalizada)
-    if (exactMatch) {
-      for (let i = 0; i < norm.length; i++) {
-        for (let kw of keywords) {
-          if (norm[i] === kw) return i;
-        }
+// ==================== LECTURA DEL ARCHIVO CON MAPEO EXACTO ====================
+function parseSource(rawData) {
+  // Buscar la fila que contiene "BENEFICIARIO" (exacto)
+  let headerRowIndex = -1;
+  for (let i = 0; i < rawData.length; i++) {
+    const row = rawData[i];
+    if (!row || row.length === 0) continue;
+    for (let j = 0; j < row.length; j++) {
+      const cell = row[j];
+      if (cell && typeof cell === 'string' && cell.trim().toUpperCase() === 'BENEFICIARIO') {
+        headerRowIndex = i;
+        break;
       }
     }
-    // Si no, coincidencia parcial (includes)
-    for (let i = 0; i < norm.length; i++) {
-      for (let kw of keywords) {
-        if (norm[i].includes(kw)) return i;
+    if (headerRowIndex !== -1) break;
+  }
+  if (headerRowIndex === -1) throw new Error("No se encontró la columna 'BENEFICIARIO' en la primera fila.");
+
+  const headerRow = rawData[headerRowIndex].map(cell => (cell !== undefined && cell !== null) ? String(cell).trim() : '');
+
+  // Validar que no haya encabezados vacíos (obligatorio)
+  const emptyHeaders = [];
+  for (let i = 0; i < headerRow.length; i++) {
+    if (headerRow[i] === '') emptyHeaders.push(i+1);
+  }
+  if (emptyHeaders.length > 0) {
+    throw new Error(`⚠️ Las siguientes columnas tienen el encabezado vacío: ${emptyHeaders.join(', ')}. Todas las columnas deben tener un nombre en la primera fila.`);
+  }
+
+  // Mapeo EXACTO: comparar strings normalizados (mayúsculas, sin espacios)
+  const normHeader = headerRow.map(h => h.toUpperCase());
+  
+  const findExact = (targets) => {
+    for (let i = 0; i < normHeader.length; i++) {
+      for (let t of targets) {
+        if (normHeader[i] === t) return i;
       }
     }
     return -1;
   };
-  
-  // Definir keywords para cada campo (priorizar las más específicas y exactas)
+
+  // Definimos los nombres exactos que buscamos (en mayúsculas, sin espacios extras)
   const mapping = {
-    fecha: { keywords: ['FECHA', 'DATE', 'FECH'], exact: true },
-    beneficiario: { keywords: ['BENEFICIARIO', 'BENEFICIARIA', 'NOMBRE', 'RAZON SOCIAL'], exact: true },
-    tipoId: { keywords: ['TIPO DE IDENTIFICACION', 'TIPO IDENTIFICACION', 'TIPO ID', 'TIPO DOCUMENTO'], exact: true },
-    identificacion: { keywords: ['NUMERO IDENTIFICACION', 'IDENTIFICACION', 'NUMERO DOCUMENTO', 'CEDULA', 'NIT'], exact: false }, // no exacta porque puede tener variantes
-    banco: { keywords: ['BANCO', 'ENTIDAD BANCARIA'], exact: true },
-    tipoCuenta: { keywords: ['TIPO DE CUENTA', 'TIPO CUENTA', 'TIPOCUENTA'], exact: true },
-    cuenta: { keywords: ['CUENTA BENEFICIARIA', 'NUMERO CUENTA', 'CUENTA BENEF', 'CUENTA'], exact: false },
-    importe: { keywords: ['IMPORTE (COP)', 'IMPORTE', 'VALOR', 'MONTO'], exact: false },
-    formaPago: { keywords: ['FORMA DE PAGO', 'FORMA PAGO', 'FORMA', 'MEDIO DE PAGO'], exact: true },
-    concepto: { keywords: ['CONCEPTO', 'DESCRIPCION', 'DETALLE'], exact: true },
-    estado: { keywords: ['ESTADO DE LA TRANSACCIÓN', 'ESTADO', 'STATUS', 'ESTATUS'], exact: false },
-    motivo: { keywords: ['MOTIVO DE RECHAZO', 'MOTIVO RECHAZO', 'RAZON RECHAZO'], exact: true }
+    fecha: ['FECHA'],
+    beneficiario: ['BENEFICIARIO'],
+    tipoId: ['TIPO DE IDENTIFICACION', 'TIPO IDENTIFICACION', 'TIPO ID'],
+    identificacion: ['IDENTIFICACION', 'IDENTIFICACIÓN'],
+    banco: ['BANCO'],
+    tipoCuenta: ['TIPO DE CUENTA', 'TIPO CUENTA'],
+    cuenta: ['CUENTA BENEFICIARIA', 'NUMERO CUENTA', 'CUENTA'],
+    importe: ['IMPORTE (COP)', 'IMPORTE', 'VALOR', 'MONTO'],
+    formaPago: ['FORMA DE PAGO', 'FORMA PAGO'],
+    concepto: ['CONCEPTO'],
+    estado: ['ESTADO DE LA TRANSACCIÓN', 'ESTADO', 'STATUS'],
+    motivo: ['MOTIVO DE RECHAZO', 'RAZON RECHAZO']
   };
-  
+
   const indices = {};
   let missingWarnings = [];
-  for (let [key, cfg] of Object.entries(mapping)) {
-    let idx = findColumn(cfg.keywords, cfg.exact);
+  for (let [key, targets] of Object.entries(mapping)) {
+    const idx = findExact(targets);
     if (idx === -1) {
       missingWarnings.push(`⚠️ No se encontró columna para "${key}". Se dejará vacía en el resultado.`);
       indices[key] = -1;
@@ -263,44 +240,42 @@ function mapColumns(headerRow) {
       indices[key] = idx;
     }
   }
-  return { indices, missingWarnings };
-}
 
-// ---------- LECTURA DE DATOS RESPETANDO VALORES ORIGINALES ----------
-function parseSource(rawData) {
-  let headerRowIndex = -1;
-  for (let i = 0; i < rawData.length; i++) {
-    if (rawData[i].some(v => typeof v === 'string' && v.trim().toUpperCase() === 'BENEFICIARIO')) {
-      headerRowIndex = i;
-      break;
-    }
-  }
-  if (headerRowIndex === -1) throw new Error("No se encontró la columna 'BENEFICIARIO' en la primera fila.");
-  
-  const headerRow = rawData[headerRowIndex].map(v => (v !== undefined && v !== null) ? String(v).trim() : '');
-  
-  validateHeaders(headerRow);
-  const { indices, missingWarnings } = mapColumns(headerRow);
-  let warningMsg = missingWarnings.length ? missingWarnings.join(' ') : null;
-  
+  // Verificar que tenemos columnas obligatorias
+  if (indices.beneficiario === -1) throw new Error("No se encontró la columna BENEFICIARIO");
+  if (indices.importe === -1) throw new Error("No se encontró la columna IMPORTE");
+
+  // Leer registros
   const records = [];
   for (let i = headerRowIndex + 1; i < rawData.length; i++) {
     const row = rawData[i];
-    const beneficiario = indices.beneficiario !== -1 ? row[indices.beneficiario] : null;
-    if (beneficiario === undefined || beneficiario === null || String(beneficiario).trim() === '') continue;
-    
-    // Fecha: intentar convertir, si no dejar original
-    let fechaValue = indices.fecha !== -1 ? row[indices.fecha] : null;
-    let fechaFinal = fechaValue !== null && fechaValue !== undefined ? parseDateValue(fechaValue) : null;
-    
-    // Importe: convertir a número (necesario para suma)
-    let importeRaw = indices.importe !== -1 ? row[indices.importe] : 0;
-    let importeNum = (importeRaw !== undefined && importeRaw !== null) ? parseFloat(importeRaw) : 0;
+    const beneficiario = (indices.beneficiario !== -1 && row[indices.beneficiario] !== undefined) ? row[indices.beneficiario] : null;
+    if (!beneficiario || String(beneficiario).trim() === '') continue;
+
+    // Fecha: convertir si es número serial, si no, dejar el valor original
+    let rawFecha = (indices.fecha !== -1) ? row[indices.fecha] : null;
+    let fechaFinal = null;
+    if (rawFecha !== undefined && rawFecha !== null) {
+      if (typeof rawFecha === 'number') {
+        fechaFinal = excelSerialToDate(rawFecha);
+      } else if (rawFecha instanceof Date) {
+        fechaFinal = rawFecha;
+      } else {
+        // Intentar parsear string como fecha
+        const parsed = new Date(rawFecha);
+        if (!isNaN(parsed)) fechaFinal = parsed;
+        else fechaFinal = rawFecha;
+      }
+    }
+
+    // Importe: convertir a número (para la suma)
+    let importeRaw = (indices.importe !== -1) ? row[indices.importe] : 0;
+    let importeNum = parseFloat(importeRaw);
     if (isNaN(importeNum)) importeNum = 0;
-    
-    // Para el resto de campos, tomar el valor EXACTO de la celda (sin modificar)
+
+    // Función para obtener el valor original (sin modificar)
     const getRaw = (idx) => (idx !== -1 && row[idx] !== undefined && row[idx] !== null) ? row[idx] : '';
-    
+
     records.push({
       fecha: fechaFinal,
       beneficiario: getRaw(indices.beneficiario),
@@ -316,12 +291,12 @@ function parseSource(rawData) {
       motivo: getRaw(indices.motivo)
     });
   }
-  
-  if (records.length === 0) throw new Error("No se encontraron registros válidos (la columna BENEFICIARIO está vacía en todas las filas).");
-  return { records, warning: warningMsg };
+
+  if (records.length === 0) throw new Error("No se encontraron registros válidos (columna BENEFICIARIO vacía).");
+  return { records, warning: missingWarnings.length ? missingWarnings.join(' ') : null };
 }
 
-// ---------- CONSTRUCCIÓN DEL WORKBOOK (RESPETANDO VALORES) ----------
+// ==================== CONSTRUCCIÓN DEL WORKBOOK (EXCELJS) ====================
 async function buildWorkbook(ExcelJS, records) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('ORGANIZADO');
@@ -337,13 +312,14 @@ async function buildWorkbook(ExcelJS, records) {
   });
 
   records.forEach((rec, i) => {
-    const isEven = (i+2)%2===0;
+    const isEven = (i+2) % 2 === 0;
     const rowFill = {type:'pattern',pattern:'solid',fgColor:{argb:isEven?COLORS.rowEven:COLORS.rowOdd}};
     let estadoStr = (rec.estado !== undefined && rec.estado !== null) ? String(rec.estado).trim().toLowerCase() : '';
     const [eBg, eTxt] = estadoStr === 'exitoso' ? [COLORS.greenBg, COLORS.greenTxt] :
                          estadoStr === 'rechazado' ? [COLORS.redBg, COLORS.redTxt] :
                          [COLORS.yellowBg, COLORS.yellowTxt];
     
+    // Valor de fecha: si es Date, lo usamos; si no, el valor original (string o número)
     let fechaValor = (rec.fecha instanceof Date && !isNaN(rec.fecha)) ? rec.fecha : rec.fecha;
     
     const row = ws.addRow([
@@ -406,7 +382,7 @@ async function buildWorkbook(ExcelJS, records) {
   return wb;
 }
 
-// ---------- UI MANEJADORES ----------
+// ==================== UI MANEJADORES ====================
 function setFile(file) {
   if (!file || !file.name.match(/\.xlsx?$/i)) { showError('Solo se aceptan archivos .xlsx o .xls'); return; }
   currentFile = file;
@@ -461,10 +437,12 @@ btnProcess.addEventListener('click', async () => {
     setProgress('Leyendo archivo...', 15, currentFile.name);
     await new Promise(r => setTimeout(r, 80));
     const buffer = await currentFile.arrayBuffer();
-    const workbook = XLSX.read(buffer, {type:'array', cellText:false, cellDates:true});
+    // Leer sin convertir fechas automáticamente para evitar timezone issues
+    const workbook = XLSX.read(buffer, {type:'array', cellText:false, cellDates:false});
     setProgress('Detectando columnas...', 35, `Hoja: ${workbook.SheetNames[0]}`);
     await new Promise(r => setTimeout(r, 80));
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    // Convertir a JSON con header:1 para obtener todas las filas como arrays
     const rawData = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
     const { records, warning } = parseSource(rawData);
     
