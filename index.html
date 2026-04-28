@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PagosXLS — Formateador</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#080810;--surface:rgba(255,255,255,0.04);--surface2:rgba(255,255,255,0.07);
+  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);
+  --text:#f0f0f8;--muted:rgba(255,255,255,0.4);
+  --accent:#4f7fff;--glow1:#4f7fff;--glow2:#b94fff;
+  --green:#22c97a;--red:#ff5c5c;
+}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background-image:radial-gradient(rgba(255,255,255,0.055) 1px,transparent 1px);background-size:28px 28px;pointer-events:none;z-index:0}
+.blob{position:fixed;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0}
+.blob-1{width:500px;height:500px;background:rgba(79,127,255,0.13);top:-120px;left:-120px}
+.blob-2{width:420px;height:420px;background:rgba(185,79,255,0.10);bottom:-80px;right:-80px}
+.blob-3{width:320px;height:320px;background:rgba(34,201,122,0.07);top:50%;left:50%;transform:translate(-50%,-50%)}
+nav,main,footer{position:relative;z-index:1}
+nav{display:flex;align-items:center;justify-content:space-between;padding:0 2rem;height:60px;border-bottom:1px solid var(--border);backdrop-filter:blur(12px);background:rgba(8,8,16,0.75);position:sticky;top:0;z-index:99}
+.logo{font-family:'Syne',sans-serif;font-weight:800;font-size:18px;background:linear-gradient(135deg,#fff 0%,rgba(255,255,255,0.55) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:flex;align-items:center;gap:10px}
+.logo-icon{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--glow1),var(--glow2));display:flex;align-items:center;justify-content:center;font-size:15px;-webkit-text-fill-color:initial}
+.nav-pill{font-size:11px;font-weight:500;letter-spacing:0.5px;color:var(--accent);border:1px solid rgba(79,127,255,0.3);padding:5px 12px;border-radius:99px;background:rgba(79,127,255,0.07)}
+main{flex:1;display:flex;flex-direction:column;align-items:center;padding:4rem 1.5rem 3rem;gap:2rem}
+.hero{text-align:center;max-width:560px}
+.hero-tag{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:500;letter-spacing:0.6px;text-transform:uppercase;color:var(--accent);border:1px solid rgba(79,127,255,0.25);padding:6px 14px;border-radius:99px;background:rgba(79,127,255,0.07);margin-bottom:1.4rem}
+.hero-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.75)}}
+.hero h1{font-family:'Syne',sans-serif;font-size:clamp(2.2rem,5vw,3.4rem);font-weight:800;line-height:1.08;letter-spacing:-2px;margin-bottom:1rem}
+.hero h1 em{font-style:normal;background:linear-gradient(135deg,var(--glow1) 0%,var(--glow2) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hero p{font-size:15px;font-weight:300;color:var(--muted);line-height:1.75;max-width:440px;margin:0 auto 1.8rem}
+.features{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.feat{font-size:12px;font-weight:500;color:rgba(255,255,255,0.5);border:1px solid var(--border2);padding:5px 13px;border-radius:99px;background:var(--surface)}
+.card{width:100%;max-width:480px;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:2rem;backdrop-filter:blur(16px);box-shadow:0 0 0 1px rgba(255,255,255,0.03),0 24px 48px rgba(0,0,0,0.4)}
+#drop-zone{border:1.5px dashed var(--border2);border-radius:14px;padding:2.5rem 1.5rem;text-align:center;cursor:pointer;transition:all 0.25s;position:relative}
+#drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+#drop-zone:hover,#drop-zone.over{border-color:rgba(79,127,255,0.5);background:rgba(79,127,255,0.05);box-shadow:0 0 32px rgba(79,127,255,0.07) inset}
+.drop-icon-wrap{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,rgba(79,127,255,0.18),rgba(185,79,255,0.18));border:1px solid rgba(79,127,255,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:24px}
+.drop-title{font-family:'Syne',sans-serif;font-weight:700;font-size:16px;margin-bottom:5px;color:var(--text)}
+.drop-sub{font-size:13px;color:var(--muted);margin-bottom:14px}
+.drop-badge{font-size:11px;font-weight:600;letter-spacing:0.5px;background:rgba(79,127,255,0.12);color:var(--accent);border:1px solid rgba(79,127,255,0.2);padding:4px 12px;border-radius:99px}
+#file-info{display:none;align-items:center;gap:12px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:12px 14px;margin-top:14px}
+.fi-icon{width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,var(--glow1),var(--glow2));display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.fi-name{font-weight:600;font-size:14px;color:var(--text)}
+.fi-size{font-size:12px;color:var(--muted)}
+.fi-remove{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px;transition:color 0.2s}
+.fi-remove:hover{color:var(--red)}
+#btn-process{display:none;width:100%;margin-top:16px;background:linear-gradient(135deg,var(--glow1) 0%,var(--glow2) 100%);color:#fff;border:none;border-radius:12px;padding:15px;font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:0.2px;transition:opacity 0.2s,transform 0.15s,box-shadow 0.2s;box-shadow:0 4px 24px rgba(79,127,255,0.25)}
+#btn-process:hover{opacity:.9;box-shadow:0 8px 32px rgba(79,127,255,0.4)}
+#btn-process:active{transform:scale(0.98)}
+#progress-wrap{display:none;margin-top:20px;text-align:center}
+.spinner{width:44px;height:44px;border:3px solid rgba(255,255,255,0.07);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 14px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.pbar-bg{background:rgba(255,255,255,0.07);border-radius:99px;height:4px;overflow:hidden;margin-top:14px}
+.pbar{height:100%;background:linear-gradient(90deg,var(--glow1),var(--glow2));border-radius:99px;width:0%;transition:width 0.4s ease}
+.prog-msg{font-size:15px;font-weight:500;color:var(--text)}
+.prog-sub{font-size:12px;color:var(--muted);margin-top:5px}
+#success-wrap{display:none;text-align:center;padding:.5rem 0}
+.suc-icon{width:64px;height:64px;border-radius:50%;background:rgba(34,201,122,0.12);border:1px solid rgba(34,201,122,0.25);display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 16px}
+.suc-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;margin-bottom:8px}
+.suc-meta{font-size:14px;color:var(--muted);margin-bottom:20px;line-height:1.6}
+.suc-meta strong{color:var(--green)}
+.btn-ghost{display:block;width:100%;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:12px;padding:13px;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s}
+.btn-ghost:hover{background:var(--surface);border-color:rgba(255,255,255,0.2)}
+#error-wrap{display:none;background:rgba(255,92,92,0.08);border:1px solid rgba(255,92,92,0.2);border-radius:10px;padding:12px 16px;margin-top:14px;font-size:13px;color:var(--red);line-height:1.5}
+.steps{width:100%;max-width:480px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.step{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:1.2rem 1rem;text-align:center}
+.step-num{font-family:'Syne',sans-serif;font-size:26px;font-weight:800;background:linear-gradient(135deg,var(--glow1),var(--glow2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}
+.step-title{font-weight:600;font-size:12px;color:var(--text);margin-bottom:4px}
+.step-desc{font-size:11px;color:var(--muted);line-height:1.5}
+footer{position:relative;z-index:1;padding:1.5rem;text-align:center;font-size:12px;color:var(--muted);border-top:1px solid var(--border)}
+footer a{color:var(--accent);text-decoration:none;opacity:.8}
+footer a:hover{opacity:1}
+@media(max-width:480px){.hero h1{letter-spacing:-1px}.steps{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+<div class="blob blob-3"></div>
+
+<nav>
+  <div class="logo"><div class="logo-icon">⚡</div>PagosXLS</div>
+  <span class="nav-pill">100% local · sin servidores</span>
+</nav>
+
+<main>
+  <div class="hero">
+    <div class="hero-tag"><span class="hero-dot"></span>Herramienta gratuita</div>
+    <h1>Formatea tus<br><em>pagos al instante</em></h1>
+    <p>Sube tu Excel, obtén una hoja limpia con filtros, colores por estado y totales automáticos. Todo ocurre en tu navegador.</p>
+    <div class="features">
+      <span class="feat">✦ Filtros automáticos</span>
+      <span class="feat">✦ Colores por estado</span>
+      <span class="feat">✦ Fila de totales</span>
+      <span class="feat">✦ Datos 100% privados</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="drop-zone">
+      <input type="file" accept=".xlsx,.xls" id="file-input">
+      <div class="drop-icon-wrap">📂</div>
+      <div class="drop-title">Arrastra tu archivo aquí</div>
+      <div class="drop-sub">o haz clic para buscar en tu equipo</div>
+      <span class="drop-badge">.XLSX · .XLS</span>
+    </div>
+    <div id="file-info">
+      <div class="fi-icon">📄</div>
+      <div><div class="fi-name" id="fname"></div><div class="fi-size" id="fsize"></div></div>
+      <button class="fi-remove" id="btn-remove">✕</button>
+    </div>
+    <div id="error-wrap"></div>
+    <button id="btn-process">⚡ &nbsp;Formatear y Descargar</button>
+    <div id="progress-wrap">
+      <div class="spinner"></div>
+      <div class="prog-msg" id="progress-msg">Leyendo archivo...</div>
+      <div class="prog-sub" id="progress-sub"></div>
+      <div class="pbar-bg"><div class="pbar" id="pbar"></div></div>
+    </div>
+    <div id="success-wrap">
+      <div class="suc-icon">✅</div>
+      <div class="suc-title">¡Descargado!</div>
+      <div class="suc-meta">Se formatearon <strong id="rec-count">0</strong> registros.<br>La descarga inició automáticamente.</div>
+      <button class="btn-ghost" id="btn-reset">Formatear otro archivo</button>
+    </div>
+  </div>
+
+  <div class="steps">
+    <div class="step"><div class="step-num">01</div><div class="step-title">Sube tu archivo</div><div class="step-desc">Cualquier .xlsx exportado de tu sistema</div></div>
+    <div class="step"><div class="step-num">02</div><div class="step-title">Procesado local</div><div class="step-desc">Corre en tu navegador, nada se envía</div></div>
+    <div class="step"><div class="step-num">03</div><div class="step-title">Descarga listo</div><div class="step-desc">Con hoja ORGANIZADO, filtros y colores</div></div>
+  </div>
+</main>
+
+<footer>
+  Hecho con ♥ &nbsp;·&nbsp; Tus datos nunca salen de tu dispositivo &nbsp;·&nbsp;
+  <a href="https://github.com" target="_blank">GitHub</a>
+</footer>
+
+<script>
+const COLORS={darkBlue:"FF1F4E79",rowEven:"FFEAF4FB",rowOdd:"FFFFFFFF",greenBg:"FFE2EFDA",greenTxt:"FF375623",redBg:"FFFDECEA",redTxt:"FF9C0006",yellowBg:"FFFFF2CC",yellowTxt:"FF7D6608"}
+const COL_WIDTHS=[12,38,10,20,20,14,24,18,20,12,14,28]
+const HEADERS=["FECHA","BENEFICIARIO","TIPO ID","IDENTIFICACIÓN","BANCO","TIPO CUENTA","CUENTA BENEFICIARIA","IMPORTE (COP)","FORMA DE PAGO","CONCEPTO","ESTADO","MOTIVO DE RECHAZO"]
+let currentFile=null
+const $=id=>document.getElementById(id)
+const dropZone=$('drop-zone'),fileInput=$('file-input'),fileInfo=$('file-info')
+const fnameEl=$('fname'),fsizeEl=$('fsize'),btnRemove=$('btn-remove')
+const btnProcess=$('btn-process'),progressWrap=$('progress-wrap')
+const progressMsg=$('progress-msg'),progressSub=$('progress-sub'),pbar=$('pbar')
+const successWrap=$('success-wrap'),recCount=$('rec-count'),btnReset=$('btn-reset')
+const errorWrap=$('error-wrap')
+const fmtSize=b=>b>1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB'
+function setFile(file){
+  if(!file||!file.name.match(/\.xlsx?$/i)){showError('Solo se aceptan archivos .xlsx o .xls');return}
+  currentFile=file;fnameEl.textContent=file.name;fsizeEl.textContent=fmtSize(file.size)
+  fileInfo.style.display='flex';btnProcess.style.display='block';errorWrap.style.display='none'
+}
+function showError(msg){errorWrap.textContent='⚠️  '+msg;errorWrap.style.display='block'}
+function setProgress(msg,pct,sub=''){progressMsg.textContent=msg;pbar.style.width=pct+'%';progressSub.textContent=sub}
+function reset(){
+  currentFile=null;fileInput.value=''
+  fileInfo.style.display='none';btnProcess.style.display='none'
+  progressWrap.style.display='none';successWrap.style.display='none'
+  errorWrap.style.display='none';dropZone.style.display='block';pbar.style.width='0%'
+}
+fileInput.addEventListener('change',e=>setFile(e.target.files[0]))
+btnRemove.addEventListener('click',reset)
+btnReset.addEventListener('click',reset)
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('over')})
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('over'))
+dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('over');setFile(e.dataTransfer.files[0])})
+function parseSource(rawData){
+  let hi=-1
+  for(let i=0;i<rawData.length;i++){if(rawData[i].some(v=>typeof v==='string'&&v.trim()==='BENEFICIARIO')){hi=i;break}}
+  if(hi===-1)throw new Error("No se encontró la columna 'BENEFICIARIO'.")
+  const h=rawData[hi].map(v=>(v||'').toString().trim().toUpperCase())
+  const fi=k=>h.findIndex(x=>x.includes(k))
+  const idx={fecha:fi('FECHA')!==-1?fi('FECHA'):1,benef:h.indexOf('BENEFICIARIO'),tipoId:h.findIndex(x=>x.includes('IDENTIFICACION')&&x.includes('TIPO')),ident:h.indexOf('IDENTIFICACION'),banco:h.indexOf('BANCO'),tipoCta:h.findIndex(x=>x.includes('TIPO')&&x.includes('CUENTA')),cuenta:h.findIndex(x=>x.includes('CUENTA')&&x.includes('BENEF')),importe:fi('IMPORTE'),forma:fi('FORMA'),conc:h.indexOf('CONCEPTO'),estado:fi('ESTADO'),motivo:fi('MOTIVO')}
+  const records=[]
+  for(let i=hi+1;i<rawData.length;i++){
+    const row=rawData[i];const benef=idx.benef>=0?row[idx.benef]:null
+    if(!benef||!String(benef).trim())continue
+    let fecha=idx.fecha>=0?row[idx.fecha]:null
+    if(typeof fecha==='number'){const d=XLSX.SSF.parse_date_code(fecha);fecha=new Date(d.y,d.m-1,d.d)}
+    let importe=idx.importe>=0?row[idx.importe]:0;importe=parseFloat(importe)||0
+    const g=i2=>i2>=0?String(row[i2]||'').trim():''
+    records.push({fecha,beneficiario:g(idx.benef),tipoId:g(idx.tipoId),identificacion:g(idx.ident),banco:g(idx.banco),tipoCuenta:g(idx.tipoCta),cuenta:g(idx.cuenta),importe,formaPago:g(idx.forma),concepto:g(idx.conc),estado:g(idx.estado),motivo:g(idx.motivo)})
+  }
+  return records
+}
+async function buildWorkbook(ExcelJS,records){
+  const wb=new ExcelJS.Workbook();const ws=wb.addWorksheet('ORGANIZADO')
+  const bdr={top:{style:'thin',color:{argb:'FFBFBFBF'}},bottom:{style:'thin',color:{argb:'FFBFBFBF'}},left:{style:'thin',color:{argb:'FFBFBFBF'}},right:{style:'thin',color:{argb:'FFBFBFBF'}}}
+  const hFill={type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}}
+  const hRow=ws.addRow(HEADERS);hRow.height=28
+  hRow.eachCell(cell=>{cell.font={name:'Arial',bold:true,color:{argb:'FFFFFFFF'},size:10};cell.fill=hFill;cell.alignment={horizontal:'center',vertical:'middle',wrapText:true};cell.border=bdr})
+  records.forEach((rec,i)=>{
+    const isEven=(i+2)%2===0
+    const rowFill={type:'pattern',pattern:'solid',fgColor:{argb:isEven?COLORS.rowEven:COLORS.rowOdd}}
+    const el=rec.estado.trim().toLowerCase()
+    const[eBg,eTxt]=el==='exitoso'?[COLORS.greenBg,COLORS.greenTxt]:el==='rechazado'?[COLORS.redBg,COLORS.redTxt]:[COLORS.yellowBg,COLORS.yellowTxt]
+    const row=ws.addRow([rec.fecha,rec.beneficiario,rec.tipoId,rec.identificacion,rec.banco,rec.tipoCuenta,rec.cuenta,rec.importe,rec.formaPago,rec.concepto,rec.estado.trim(),rec.motivo])
+    row.eachCell({includeEmpty:true},(cell,col)=>{
+      cell.font={name:'Arial',size:10};cell.border=bdr
+      if(col===1){cell.fill=rowFill;cell.alignment={horizontal:'center',vertical:'middle'};if(rec.fecha instanceof Date)cell.numFmt='DD/MM/YYYY'}
+      else if(col===8){cell.fill=rowFill;cell.alignment={horizontal:'right',vertical:'middle'};cell.numFmt='#,##0'}
+      else if(col===11){cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:eBg}};cell.font={name:'Arial',size:10,bold:true,color:{argb:eTxt}};cell.alignment={horizontal:'center',vertical:'middle'}}
+      else if([3,4,6,7,9,10].includes(col)){cell.fill=rowFill;cell.alignment={horizontal:'center',vertical:'middle'}}
+      else{cell.fill=rowFill;cell.alignment={horizontal:'left',vertical:'middle'}}
+    })
+  })
+  const lastData=records.length+1
+  const tRow=ws.addRow(new Array(12).fill(''));tRow.height=24
+  tRow.getCell(1).value='TOTAL';tRow.getCell(8).value={formula:`SUM(H2:H${lastData})`};tRow.getCell(8).numFmt='#,##0'
+  const tFill={type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}}
+  tRow.eachCell({includeEmpty:true},(cell,col)=>{cell.fill=tFill;cell.border=bdr;cell.font={name:'Arial',bold:true,color:{argb:'FFFFFFFF'},size:11};cell.alignment={horizontal:col===1?'center':col===8?'right':'center',vertical:'middle'}})
+  ws.autoFilter={from:'A1',to:`L${lastData}`}
+  ws.views=[{state:'frozen',ySplit:1}]
+  COL_WIDTHS.forEach((w,i)=>ws.getColumn(i+1).width=w)
+  return wb
+}
+btnProcess.addEventListener('click',async()=>{
+  if(!currentFile)return
+  btnProcess.style.display='none';fileInfo.style.display='none';dropZone.style.display='none';errorWrap.style.display='none';progressWrap.style.display='block'
+  try{
+    setProgress('Leyendo archivo...',15,currentFile.name);await new Promise(r=>setTimeout(r,80))
+    const buffer=await currentFile.arrayBuffer()
+    const workbook=XLSX.read(buffer,{type:'array',cellText:false,cellDates:true})
+    setProgress('Detectando columnas...',35,`Hoja: ${workbook.SheetNames[0]}`);await new Promise(r=>setTimeout(r,80))
+    const sheet=workbook.Sheets[workbook.SheetNames[0]]
+    const rawData=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''})
+    const records=parseSource(rawData)
+    setProgress('Aplicando formato...',60,`${records.length} registros encontrados`);await new Promise(r=>setTimeout(r,80))
+    if(!window.ExcelJS)throw new Error('Librería no cargada. Recarga la página.')
+    const outWb=await buildWorkbook(window.ExcelJS,records)
+    setProgress('Generando archivo...',85,'Casi listo...');await new Promise(r=>setTimeout(r,80))
+    const outBuf=await outWb.xlsx.writeBuffer()
+    const blob=new Blob([outBuf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
+    const url=URL.createObjectURL(blob);const a=document.createElement('a')
+    a.href=url;a.download=currentFile.name.replace(/\.xlsx?$/i,'')+'_ORGANIZADO.xlsx';a.click();URL.revokeObjectURL(url)
+    setProgress('¡Listo!',100);await new Promise(r=>setTimeout(r,350))
+    progressWrap.style.display='none';recCount.textContent=records.length;successWrap.style.display='block'
+  }catch(err){
+    console.error(err);progressWrap.style.display='none'
+    dropZone.style.display='block';fileInfo.style.display='flex';btnProcess.style.display='block'
+    showError(err.message||'Error inesperado. Intenta de nuevo.')
+  }
+})
+</script>
+</body>
+</html>
