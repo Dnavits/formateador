@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PagosXLSS — Formateador</title>
+<title>PagosXLS — Formateador Estricto con Encabezados</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
   --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);
   --text:#f0f0f8;--muted:rgba(255,255,255,0.4);
   --accent:#4f7fff;--glow1:#4f7fff;--glow2:#b94fff;
-  --green:#22c97a;--red:#ff5c5c;
+  --green:#22c97a;--red:#ff5c5c;--yellow:#ffb347;
 }
 html{scroll-behavior:smooth}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden}
@@ -46,6 +46,8 @@ main{flex:1;display:flex;flex-direction:column;align-items:center;padding:4rem 1
 .drop-title{font-family:'Syne',sans-serif;font-weight:700;font-size:16px;margin-bottom:5px;color:var(--text)}
 .drop-sub{font-size:13px;color:var(--muted);margin-bottom:14px}
 .drop-badge{font-size:11px;font-weight:600;letter-spacing:0.5px;background:rgba(79,127,255,0.12);color:var(--accent);border:1px solid rgba(79,127,255,0.2);padding:4px 12px;border-radius:99px}
+#warning-area{display:none;margin-top:12px;background:rgba(255,180,71,0.12);border-left:3px solid var(--yellow);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--yellow);gap:10px;align-items:center;backdrop-filter:blur(4px)}
+#warning-area span{font-size:18px}
 #file-info{display:none;align-items:center;gap:12px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:12px 14px;margin-top:14px}
 .fi-icon{width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,var(--glow1),var(--glow2));display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
 .fi-name{font-weight:600;font-size:14px;color:var(--text)}
@@ -113,6 +115,7 @@ footer a:hover{opacity:1}
       <div class="drop-sub">o haz clic para buscar en tu equipo</div>
       <span class="drop-badge">.XLSX · .XLS</span>
     </div>
+    <div id="warning-area"></div>
     <div id="file-info">
       <div class="fi-icon">📄</div>
       <div><div class="fi-name" id="fname"></div><div class="fi-size" id="fsize"></div></div>
@@ -148,171 +151,202 @@ footer a:hover{opacity:1}
 
 <script>
 const COLORS={darkBlue:"FF1F4E79",rowEven:"FFEAF4FB",rowOdd:"FFFFFFFF",greenBg:"FFE2EFDA",greenTxt:"FF375623",redBg:"FFFDECEA",redTxt:"FF9C0006",yellowBg:"FFFFF2CC",yellowTxt:"FF7D6608"}
-const COL_WIDTHS=[12,38,10,20,20,14,24,18,20,12,14,28]
-const HEADERS=["FECHA","BENEFICIARIO","TIPO ID","IDENTIFICACIÓN","BANCO","TIPO CUENTA","CUENTA BENEFICIARIA","IMPORTE (COP)","FORMA DE PAGO","CONCEPTO","ESTADO","MOTIVO DE RECHAZO"]
-let currentFile=null
-const $=id=>document.getElementById(id)
-const dropZone=$('drop-zone'),fileInput=$('file-input'),fileInfo=$('file-info')
-const fnameEl=$('fname'),fsizeEl=$('fsize'),btnRemove=$('btn-remove')
-const btnProcess=$('btn-process'),progressWrap=$('progress-wrap')
-const progressMsg=$('progress-msg'),progressSub=$('progress-sub'),pbar=$('pbar')
-const successWrap=$('success-wrap'),recCount=$('rec-count'),btnReset=$('btn-reset')
-const errorWrap=$('error-wrap')
-const fmtSize=b=>b>1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB'
+// Las columnas que tendrá el archivo de salida (siempre 12)
+const OUTPUT_HEADERS = ["FECHA","BENEFICIARIO","TIPO ID","IDENTIFICACIÓN","BANCO","TIPO CUENTA","CUENTA BENEFICIARIA","IMPORTE (COP)","FORMA DE PAGO","CONCEPTO","ESTADO","MOTIVO DE RECHAZO"]
+const COL_WIDTHS = [12,38,10,20,20,14,24,18,20,12,14,28]
 
-// ========== FUNCIÓN ROBUSTA PARA PARSEAR FECHAS ==========
+let currentFile = null
+const $ = id => document.getElementById(id)
+const dropZone = $('drop-zone'), fileInput = $('file-input'), fileInfo = $('file-info')
+const fnameEl = $('fname'), fsizeEl = $('fsize'), btnRemove = $('btn-remove')
+const btnProcess = $('btn-process'), progressWrap = $('progress-wrap')
+const progressMsg = $('progress-msg'), progressSub = $('progress-sub'), pbar = $('pbar')
+const successWrap = $('success-wrap'), recCount = $('rec-count'), btnReset = $('btn-reset')
+const errorWrap = $('error-wrap'), warningDiv = $('warning-area')
+const fmtSize = b => b > 1048576 ? (b/1048576).toFixed(1)+' MB' : Math.round(b/1024)+' KB'
+
+// Función robusta de parseo de fechas (igual que antes)
 function parseDateValue(valor) {
   if (!valor && valor !== 0) return null;
-  
-  // Si ya es Date válido
   if (valor instanceof Date && !isNaN(valor)) return valor;
-  
-  // Si es número (serial de Excel)
   if (typeof valor === 'number') {
     if (typeof XLSX !== 'undefined' && XLSX.SSF && XLSX.SSF.parse_date_code) {
       try {
         const d = XLSX.SSF.parse_date_code(valor);
         return new Date(d.y, d.m - 1, d.d);
-      } catch(e) { /* fallback manual */ }
+      } catch(e) {}
     }
     const excelEpoch = new Date(1899, 11, 30);
-    const msPerDay = 86400000;
     let days = Math.floor(valor);
     if (days > 59) days -= 1;
-    return new Date(excelEpoch.getTime() + days * msPerDay);
+    return new Date(excelEpoch.getTime() + days * 86400000);
   }
-  
-  // Si es string: probar formatos comunes
   if (typeof valor === 'string') {
     let s = valor.trim();
-    // DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY
     let matches = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
     if (matches) {
-      let day = parseInt(matches[1], 10);
-      let month = parseInt(matches[2], 10) - 1;
-      let year = parseInt(matches[3], 10);
-      let d = new Date(year, month, day);
+      let d = new Date(parseInt(matches[3]), parseInt(matches[2])-1, parseInt(matches[1]));
       if (!isNaN(d)) return d;
     }
-    // YYYY-MM-DD
     let iso = new Date(s);
     if (!isNaN(iso)) return iso;
-    
-    console.warn('[Fecha no interpretable]', s);
-    return null;  // ⚠️ No se pudo parsear → devolvemos null, NO el string original
+    return null;
   }
   return null;
 }
 
-// ========== PARSEO MEJORADO CON DETECCIÓN DE COLUMNA FECHA MÁS FLEXIBLE ==========
-function parseSource(rawData) {
-  let hi = -1;
-  for (let i = 0; i < rawData.length; i++) {
-    if (rawData[i].some(v => typeof v === 'string' && v.trim().toUpperCase() === 'BENEFICIARIO')) {
-      hi = i;
+// Validación estricta: primera fila (header) no debe tener celdas vacías
+function validateHeadersHaveNoBlanks(headerRow) {
+  for (let i=0; i<headerRow.length; i++) {
+    let cell = headerRow[i];
+    if (cell === undefined || cell === null || (typeof cell === 'string' && cell.trim() === '')) {
+      return { valid: false, colIndex: i+1 };
+    }
+  }
+  return { valid: true };
+}
+
+// Mapeo flexible: busca columnas por coincidencia parcial (sin distinguir mayúsculas/minúsculas)
+// Retorna el índice de la columna en el archivo original, o -1 si no se encuentra.
+function findColumnIndex(headerRow, keywords) {
+  for (let kw of keywords) {
+    let upperKw = kw.toUpperCase();
+    let idx = headerRow.findIndex(cell => {
+      if (cell === undefined || cell === null) return false;
+      let cellStr = String(cell).trim().toUpperCase();
+      return cellStr.includes(upperKw);
+    });
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+// Procesamiento principal: lee rawData (array de arrays) y devuelve { records, warnings array }
+function parseSourceFlexible(rawData) {
+  // Buscar la primera fila que contenga al menos una celda no vacía (asumimos que es la fila de encabezados)
+  let headerRowIndex = -1;
+  for (let i=0; i<rawData.length; i++) {
+    if (rawData[i] && rawData[i].some(cell => cell !== undefined && cell !== null && String(cell).trim() !== '')) {
+      headerRowIndex = i;
       break;
     }
   }
-  if (hi === -1) throw new Error("No se encontró la columna 'BENEFICIARIO'.");
+  if (headerRowIndex === -1) throw new Error("No se encontraron datos en el archivo.");
 
-  const h = rawData[hi].map(v => (v || '').toString().trim().toUpperCase());
+  let headerRow = rawData[headerRowIndex].map(cell => (cell !== undefined && cell !== null) ? String(cell).trim() : '');
   
-  // Función para buscar columna con coincidencia parcial (más tolerante)
-  const findColumn = (keywords) => {
-    for (let kw of keywords) {
-      let idx = h.findIndex(cell => cell.includes(kw));
-      if (idx !== -1) return idx;
-    }
-    return -1;
-  };
-  
-  const idx = {
-    fecha: findColumn(['FECHA', 'DATE', 'FECH', 'FECHA PAGO']),
-    benef: h.indexOf('BENEFICIARIO'),
-    tipoId: findColumn(['TIPO ID', 'TIPOIDENTIFICACION', 'TIPO IDENTIFICACION']),
-    ident: findColumn(['IDENTIFICACION', 'IDENTIFICACIÓN', 'NUMERO IDENTIFICACION']),
-    banco: h.indexOf('BANCO'),
-    tipoCta: findColumn(['TIPO CUENTA', 'TIPOCUENTA', 'TIPO DE CUENTA']),
-    cuenta: findColumn(['CUENTA BENEFICIARIA', 'CUENTA BENEF', 'NUMERO CUENTA']),
-    importe: findColumn(['IMPORTE', 'VALOR', 'MONTO']),
-    forma: findColumn(['FORMA DE PAGO', 'FORMA PAGO', 'FORMA']),
-    conc: findColumn(['CONCEPTO', 'DESCRIPCION', 'DETALLE']),
-    estado: findColumn(['ESTADO', 'STATUS', 'ESTATUS']),
-    motivo: findColumn(['MOTIVO DE RECHAZO', 'MOTIVO RECHAZO', 'RAZON RECHAZO', 'MOTIVO'])
-  };
-  
-  // Verificar columnas obligatorias
-  if (idx.fecha === -1) throw new Error("No se encontró una columna de FECHA (buscamos: FECHA, DATE, FECH, FECHA PAGO)");
-  if (idx.importe === -1) throw new Error("No se encontró una columna de IMPORTE (buscamos: IMPORTE, VALOR, MONTO)");
+  // Validar que no haya encabezados vacíos
+  const headerValidation = validateHeadersHaveNoBlanks(headerRow);
+  if (!headerValidation.valid) {
+    throw new Error(`La columna ${headerValidation.colIndex} tiene el encabezado vacío. Todas las columnas deben tener un nombre en la primera fila.`);
+  }
 
+  // Mapear índices buscando coincidencias flexibles con los encabezados deseados
+  const colMap = {
+    fecha: findColumnIndex(headerRow, ['FECHA', 'DATE', 'FECH']),
+    beneficiario: findColumnIndex(headerRow, ['BENEFICIARIO', 'BENEFICIARIA', 'BENEF']),
+    tipoId: findColumnIndex(headerRow, ['TIPO ID', 'TIPOIDENTIFICACION', 'TIPO IDENTIFICACION']),
+    identificacion: findColumnIndex(headerRow, ['IDENTIFICACION', 'IDENTIFICACIÓN', 'NUMERO IDENTIFICACION', 'CEDULA', 'CÉDULA', 'ID']),
+    banco: findColumnIndex(headerRow, ['BANCO']),
+    tipoCuenta: findColumnIndex(headerRow, ['TIPO CUENTA', 'TIPOCUENTA', 'TIPO DE CUENTA']),
+    cuenta: findColumnIndex(headerRow, ['CUENTA BENEFICIARIA', 'CUENTA BENEF', 'NUMERO CUENTA', 'CUENTA']),
+    importe: findColumnIndex(headerRow, ['IMPORTE', 'VALOR', 'MONTO', 'CANTIDAD', 'PRECIO']),
+    formaPago: findColumnIndex(headerRow, ['FORMA DE PAGO', 'FORMA PAGO', 'FORMA', 'MEDIO PAGO']),
+    concepto: findColumnIndex(headerRow, ['CONCEPTO', 'DESCRIPCION', 'DETALLE']),
+    estado: findColumnIndex(headerRow, ['ESTADO', 'STATUS', 'ESTATUS']),
+    motivo: findColumnIndex(headerRow, ['MOTIVO DE RECHAZO', 'MOTIVO RECHAZO', 'RAZON RECHAZO', 'MOTIVO'])
+  };
+
+  // Recolectar advertencias (no bloqueantes)
+  let warnings = [];
+  if (colMap.beneficiario === -1) warnings.push("No se encontró una columna de BENEFICIARIO. Se dejará vacía en el resultado.");
+  if (colMap.importe === -1) warnings.push("No se encontró una columna de IMPORTE. No se agregará fila de totales.");
+  if (colMap.estado === -1) warnings.push("No se encontró una columna de ESTADO. No se aplicarán colores por estado.");
+  if (colMap.fecha === -1) warnings.push("No se encontró una columna de FECHA. La columna de fecha quedará vacía.");
+
+  // Leer registros desde la fila siguiente a la cabecera
   const records = [];
-  let fechaParseErrors = 0;
-  
-  for (let i = hi + 1; i < rawData.length; i++) {
+  for (let i=headerRowIndex+1; i<rawData.length; i++) {
     const row = rawData[i];
-    const benef = idx.benef >= 0 ? row[idx.benef] : null;
-    if (!benef || !String(benef).trim()) continue;
-
-    let rawFecha = idx.fecha >= 0 ? row[idx.fecha] : null;
-    let fechaObj = parseDateValue(rawFecha);
-    let fechaFinal = (fechaObj instanceof Date && !isNaN(fechaObj)) ? fechaObj : null;
-    if (fechaFinal === null && rawFecha !== null && rawFecha !== '') {
-      fechaParseErrors++;
+    // Si la fila está completamente vacía, la saltamos
+    if (!row || row.every(cell => cell === undefined || cell === null || String(cell).trim() === '')) continue;
+    
+    // Beneficiario: si no se encuentra, intentamos tomar la primera columna no vacía (pero mejor dejarlo vacío)
+    let beneficiario = '';
+    if (colMap.beneficiario !== -1) {
+      beneficiario = row[colMap.beneficiario] !== undefined ? String(row[colMap.beneficiario]).trim() : '';
+    } else {
+      // Si no hay columna beneficiario, la fila no se descarta, solo el campo queda vacío
+      beneficiario = '';
     }
-
-    let importe = idx.importe >= 0 ? row[idx.importe] : 0;
-    importe = parseFloat(importe) || 0;
-
-    const g = i2 => i2 >= 0 ? String(row[i2] || '').trim() : '';
+    // Si no hay beneficiario, igual la incluimos (podría tener otras columnas útiles)
+    // No filtramos por beneficiario vacío para no perder datos.
+    
+    let fechaRaw = colMap.fecha !== -1 ? row[colMap.fecha] : null;
+    let fechaObj = parseDateValue(fechaRaw);
+    let fechaFinal = (fechaObj instanceof Date && !isNaN(fechaObj)) ? fechaObj : null;
+    
+    let importe = 0;
+    if (colMap.importe !== -1) {
+      let rawImp = row[colMap.importe];
+      if (rawImp !== undefined && rawImp !== null && rawImp !== '') {
+        importe = parseFloat(String(rawImp).replace(/[$,]/g, '')) || 0;
+      }
+    }
+    
+    const get = (idx) => idx !== -1 && row[idx] !== undefined ? String(row[idx]).trim() : '';
     
     records.push({
-      fecha: fechaFinal,   // puede ser Date o null (NUNCA string raro)
-      beneficiario: g(idx.benef),
-      tipoId: g(idx.tipoId),
-      identificacion: g(idx.ident),
-      banco: g(idx.banco),
-      tipoCuenta: g(idx.tipoCta),
-      cuenta: g(idx.cuenta),
+      fecha: fechaFinal,
+      beneficiario: beneficiario || get(colMap.beneficiario), // redundante
+      tipoId: get(colMap.tipoId),
+      identificacion: get(colMap.identificacion),
+      banco: get(colMap.banco),
+      tipoCuenta: get(colMap.tipoCuenta),
+      cuenta: get(colMap.cuenta),
       importe: importe,
-      formaPago: g(idx.forma),
-      concepto: g(idx.conc),
-      estado: g(idx.estado),
-      motivo: g(idx.motivo)
+      formaPago: get(colMap.formaPago),
+      concepto: get(colMap.concepto),
+      estado: get(colMap.estado),
+      motivo: get(colMap.motivo)
     });
   }
   
-  if (fechaParseErrors > 0) {
-    console.warn(`⚠️ No se pudieron interpretar ${fechaParseErrors} fechas (se dejarán en blanco en el Excel final).`);
-  }
-  return records;
+  return { records, warnings };
 }
 
-// ========== CONSTRUCCIÓN DEL WORKBOOK (EXCELJS) ==========
-async function buildWorkbook(ExcelJS, records) {
+// Construcción del workbook de salida usando ExcelJS
+async function buildWorkbook(ExcelJS, records, warnings) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('ORGANIZADO');
-  const bdr = {top:{style:'thin',color:{argb:'FFBFBFBF'}},bottom:{style:'thin',color:{argb:'FFBFBFBF'}},left:{style:'thin',color:{argb:'FFBFBFBF'}},right:{style:'thin',color:{argb:'FFBFBFBF'}}};
-  const hFill = {type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}};
-  const hRow = ws.addRow(HEADERS);
-  hRow.height = 28;
-  hRow.eachCell(cell => {
+  const border = {top:{style:'thin',color:{argb:'FFBFBFBF'}},bottom:{style:'thin',color:{argb:'FFBFBFBF'}},left:{style:'thin',color:{argb:'FFBFBFBF'}},right:{style:'thin',color:{argb:'FFBFBFBF'}}};
+  const headerFill = {type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}};
+  
+  // Agregar encabezados de salida (siempre 12 columnas)
+  const headerRow = ws.addRow(OUTPUT_HEADERS);
+  headerRow.height = 28;
+  headerRow.eachCell(cell => {
     cell.font = {name:'Arial',bold:true,color:{argb:'FFFFFFFF'},size:10};
-    cell.fill = hFill;
+    cell.fill = headerFill;
     cell.alignment = {horizontal:'center',vertical:'middle',wrapText:true};
-    cell.border = bdr;
+    cell.border = border;
   });
-
-  records.forEach((rec, i) => {
-    const isEven = (i+2) % 2 === 0;
-    const rowFill = {type:'pattern',pattern:'solid',fgColor:{argb:isEven?COLORS.rowEven:COLORS.rowOdd}};
+  
+  // Determinar si existe columna de importe para la suma
+  const hasImporte = records.some(r => typeof r.importe === 'number' && !isNaN(r.importe));
+  
+  // Escribir registros
+  records.forEach((rec, idx) => {
+    const isEven = (idx+2) % 2 === 0;
+    const rowFill = {type:'pattern',pattern:'solid',fgColor:{argb:isEven ? COLORS.rowEven : COLORS.rowOdd}};
+    // Color por estado si existe columna estado
     const estadoNorm = (rec.estado || '').trim().toLowerCase();
-    const [eBg, eTxt] = estadoNorm === 'exitoso' ? [COLORS.greenBg, COLORS.greenTxt] :
-                         estadoNorm === 'rechazado' ? [COLORS.redBg, COLORS.redTxt] :
-                         [COLORS.yellowBg, COLORS.yellowTxt];
-
-    // ⭐ Si la fecha es null o no es Date, dejamos la celda vacía (undefined)
-    let fechaValor = (rec.fecha instanceof Date && !isNaN(rec.fecha)) ? rec.fecha : undefined;
-
+    let estadoBg = null, estadoTxt = null;
+    if (estadoNorm === 'exitoso') { estadoBg = COLORS.greenBg; estadoTxt = COLORS.greenTxt; }
+    else if (estadoNorm === 'rechazado') { estadoBg = COLORS.redBg; estadoTxt = COLORS.redTxt; }
+    else if (rec.estado && rec.estado !== '') { estadoBg = COLORS.yellowBg; estadoTxt = COLORS.yellowTxt; }
+    
+    const fechaValor = (rec.fecha instanceof Date && !isNaN(rec.fecha)) ? rec.fecha : undefined;
     const row = ws.addRow([
       fechaValor,
       rec.beneficiario,
@@ -324,32 +358,29 @@ async function buildWorkbook(ExcelJS, records) {
       rec.importe,
       rec.formaPago,
       rec.concepto,
-      rec.estado.trim(),
+      rec.estado,
       rec.motivo
     ]);
-
-    row.eachCell({includeEmpty:true}, (cell, col) => {
+    
+    row.eachCell({includeEmpty: true}, (cell, colNum) => {
       cell.font = {name:'Arial',size:10};
-      cell.border = bdr;
-      
-      if (col === 1) {
+      cell.border = border;
+      if (colNum === 1) {
         cell.fill = rowFill;
         cell.alignment = {horizontal:'center',vertical:'middle'};
-        if (rec.fecha instanceof Date && !isNaN(rec.fecha)) {
-          cell.numFmt = 'DD/MM/YYYY';
-        }
+        if (rec.fecha instanceof Date) cell.numFmt = 'DD/MM/YYYY';
       }
-      else if (col === 8) {
+      else if (colNum === 8) {
         cell.fill = rowFill;
         cell.alignment = {horizontal:'right',vertical:'middle'};
         cell.numFmt = '#,##0';
       }
-      else if (col === 11) {
-        cell.fill = {type:'pattern',pattern:'solid',fgColor:{argb:eBg}};
-        cell.font = {name:'Arial',size:10,bold:true,color:{argb:eTxt}};
+      else if (colNum === 11 && estadoBg) {
+        cell.fill = {type:'pattern',pattern:'solid',fgColor:{argb:estadoBg}};
+        cell.font = {name:'Arial',size:10,bold:true,color:{argb:estadoTxt}};
         cell.alignment = {horizontal:'center',vertical:'middle'};
       }
-      else if ([3,4,6,7,9,10].includes(col)) {
+      else if ([3,4,6,7,9,10].includes(colNum)) {
         cell.fill = rowFill;
         cell.alignment = {horizontal:'center',vertical:'middle'};
       }
@@ -359,39 +390,59 @@ async function buildWorkbook(ExcelJS, records) {
       }
     });
   });
-
-  const lastData = records.length + 1;
-  const tRow = ws.addRow(new Array(12).fill(''));
-  tRow.height = 24;
-  tRow.getCell(1).value = 'TOTAL';
-  tRow.getCell(8).value = {formula: `SUM(H2:H${lastData})`};
-  tRow.getCell(8).numFmt = '#,##0';
-  const tFill = {type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}};
-  tRow.eachCell({includeEmpty:true}, (cell, col) => {
-    cell.fill = tFill;
-    cell.border = bdr;
-    cell.font = {name:'Arial',bold:true,color:{argb:'FFFFFFFF'},size:11};
-    cell.alignment = {horizontal: col===1?'center':col===8?'right':'center', vertical:'middle'};
-  });
-
-  ws.autoFilter = {from:'A1',to:`L${lastData}`};
-  ws.views = [{state:'frozen',ySplit:1}];
+  
+  // Fila de totales solo si existe al menos un importe numérico
+  if (hasImporte && records.length > 0) {
+    const lastRowNum = records.length + 1;
+    const totalRow = ws.addRow(new Array(12).fill(''));
+    totalRow.height = 24;
+    totalRow.getCell(1).value = 'TOTAL';
+    totalRow.getCell(8).value = {formula: `SUM(H2:H${lastRowNum})`};
+    totalRow.getCell(8).numFmt = '#,##0';
+    const totalFill = {type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}};
+    totalRow.eachCell((cell, col) => {
+      cell.fill = totalFill;
+      cell.border = border;
+      cell.font = {name:'Arial',bold:true,color:{argb:'FFFFFFFF'},size:11};
+      cell.alignment = {horizontal: col===1 ? 'center' : col===8 ? 'right' : 'center', vertical:'middle'};
+    });
+  }
+  
+  // Filtros automáticos desde A1 hasta L{última fila con datos}
+  const lastDataRow = records.length + 1;
+  ws.autoFilter = {from: 'A1', to: `L${lastDataRow}`};
+  ws.views = [{state: 'frozen', ySplit: 1}];
   COL_WIDTHS.forEach((w,i) => ws.getColumn(i+1).width = w);
+  
   return wb;
 }
 
-// ========== MANEJADORES UI (igual que antes) ==========
+// UI handlers
 function setFile(file) {
-  if (!file || !file.name.match(/\.xlsx?$/i)) { showError('Solo se aceptan archivos .xlsx o .xls'); return; }
+  if (!file || !file.name.match(/\.xlsx?$/i)) {
+    showError('Solo se aceptan archivos .xlsx o .xls');
+    return;
+  }
   currentFile = file;
   fnameEl.textContent = file.name;
   fsizeEl.textContent = fmtSize(file.size);
   fileInfo.style.display = 'flex';
   btnProcess.style.display = 'block';
   errorWrap.style.display = 'none';
+  warningDiv.style.display = 'none';
 }
-function showError(msg) { errorWrap.textContent = '⚠️  ' + msg; errorWrap.style.display = 'block'; }
-function setProgress(msg, pct, sub='') { progressMsg.textContent = msg; pbar.style.width = pct+'%'; progressSub.textContent = sub; }
+
+function showError(msg) {
+  errorWrap.textContent = '⚠️ ' + msg;
+  errorWrap.style.display = 'block';
+}
+
+function setProgress(msg, pct, sub='') {
+  progressMsg.textContent = msg;
+  pbar.style.width = pct+'%';
+  progressSub.textContent = sub;
+}
+
 function reset() {
   currentFile = null;
   fileInput.value = '';
@@ -400,6 +451,7 @@ function reset() {
   progressWrap.style.display = 'none';
   successWrap.style.display = 'none';
   errorWrap.style.display = 'none';
+  warningDiv.style.display = 'none';
   dropZone.style.display = 'block';
   pbar.style.width = '0%';
 }
@@ -417,6 +469,7 @@ btnProcess.addEventListener('click', async () => {
   fileInfo.style.display = 'none';
   dropZone.style.display = 'none';
   errorWrap.style.display = 'none';
+  warningDiv.style.display = 'none';
   progressWrap.style.display = 'block';
   try {
     setProgress('Leyendo archivo...', 15, currentFile.name);
@@ -427,11 +480,21 @@ btnProcess.addEventListener('click', async () => {
     await new Promise(r => setTimeout(r, 80));
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rawData = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
-    const records = parseSource(rawData);
+    
+    // Procesar y validar encabezados vacíos (lanzará error si los hay)
+    const { records, warnings } = parseSourceFlexible(rawData);
+    
+    // Mostrar advertencias si las hay
+    if (warnings.length > 0) {
+      warningDiv.innerHTML = `<span>⚠️</span> ${warnings.join(' · ')}`;
+      warningDiv.style.display = 'flex';
+      setTimeout(() => { if (warningDiv) warningDiv.style.display = 'none'; }, 8000);
+    }
+    
     setProgress('Aplicando formato...', 60, `${records.length} registros encontrados`);
     await new Promise(r => setTimeout(r, 80));
     if (!window.ExcelJS) throw new Error('Librería ExcelJS no cargada. Recarga la página.');
-    const outWb = await buildWorkbook(window.ExcelJS, records);
+    const outWb = await buildWorkbook(window.ExcelJS, records, warnings);
     setProgress('Generando archivo...', 85, 'Casi listo...');
     await new Promise(r => setTimeout(r, 80));
     const outBuf = await outWb.xlsx.writeBuffer();
@@ -453,7 +516,7 @@ btnProcess.addEventListener('click', async () => {
     dropZone.style.display = 'block';
     fileInfo.style.display = 'flex';
     btnProcess.style.display = 'block';
-    showError(err.message || 'Error inesperado. Revisa el archivo o intenta de nuevo.');
+    showError(err.message || 'Error inesperado. Revisa el archivo.');
   }
 });
 </script>
