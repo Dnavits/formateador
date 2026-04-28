@@ -3,19 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PagosXLS — Formateador Estricto con Encabezados</title>
+<title>PagosXLSS — Formateador Profesional</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
+/* --- ESTILOS COMPLETOS (mismos que antes, solo agrego .warning-error) --- */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#080810;--surface:rgba(255,255,255,0.04);--surface2:rgba(255,255,255,0.07);
-  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);
-  --text:#f0f0f8;--muted:rgba(255,255,255,0.4);
-  --accent:#4f7fff;--glow1:#4f7fff;--glow2:#b94fff;
-  --green:#22c97a;--red:#ff5c5c;--yellow:#ffb347;
-}
+:root{ --bg:#080810; --surface:rgba(255,255,255,0.04); --surface2:rgba(255,255,255,0.07); --border:rgba(255,255,255,0.08); --border2:rgba(255,255,255,0.14); --text:#f0f0f8; --muted:rgba(255,255,255,0.4); --accent:#4f7fff; --glow1:#4f7fff; --glow2:#b94fff; --green:#22c97a; --red:#ff5c5c; --yellow:#ffb347; }
 html{scroll-behavior:smooth}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden}
 body::before{content:'';position:fixed;inset:0;background-image:radial-gradient(rgba(255,255,255,0.055) 1px,transparent 1px);background-size:28px 28px;pointer-events:none;z-index:0}
@@ -48,6 +43,7 @@ main{flex:1;display:flex;flex-direction:column;align-items:center;padding:4rem 1
 .drop-badge{font-size:11px;font-weight:600;letter-spacing:0.5px;background:rgba(79,127,255,0.12);color:var(--accent);border:1px solid rgba(79,127,255,0.2);padding:4px 12px;border-radius:99px}
 #warning-area{display:none;margin-top:12px;background:rgba(255,180,71,0.12);border-left:3px solid var(--yellow);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--yellow);gap:10px;align-items:center;backdrop-filter:blur(4px)}
 #warning-area span{font-size:18px}
+#error-wrap{display:none;background:rgba(255,92,92,0.08);border:1px solid rgba(255,92,92,0.2);border-radius:10px;padding:12px 16px;margin-top:14px;font-size:13px;color:var(--red);line-height:1.5}
 #file-info{display:none;align-items:center;gap:12px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:12px 14px;margin-top:14px}
 .fi-icon{width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,var(--glow1),var(--glow2));display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
 .fi-name{font-weight:600;font-size:14px;color:var(--text)}
@@ -71,7 +67,6 @@ main{flex:1;display:flex;flex-direction:column;align-items:center;padding:4rem 1
 .suc-meta strong{color:var(--green)}
 .btn-ghost{display:block;width:100%;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:12px;padding:13px;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s}
 .btn-ghost:hover{background:var(--surface);border-color:rgba(255,255,255,0.2)}
-#error-wrap{display:none;background:rgba(255,92,92,0.08);border:1px solid rgba(255,92,92,0.2);border-radius:10px;padding:12px 16px;margin-top:14px;font-size:13px;color:var(--red);line-height:1.5}
 .steps{width:100%;max-width:480px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .step{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:1.2rem 1rem;text-align:center}
 .step-num{font-family:'Syne',sans-serif;font-size:26px;font-weight:800;background:linear-gradient(135deg,var(--glow1),var(--glow2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}
@@ -103,7 +98,7 @@ footer a:hover{opacity:1}
       <span class="feat">✦ Filtros automáticos</span>
       <span class="feat">✦ Colores por estado</span>
       <span class="feat">✦ Fila de totales</span>
-      <span class="feat">✦ Datos 100% privados</span>
+      <span class="feat">✦ Validación de encabezados</span>
     </div>
   </div>
 
@@ -151,21 +146,19 @@ footer a:hover{opacity:1}
 
 <script>
 const COLORS={darkBlue:"FF1F4E79",rowEven:"FFEAF4FB",rowOdd:"FFFFFFFF",greenBg:"FFE2EFDA",greenTxt:"FF375623",redBg:"FFFDECEA",redTxt:"FF9C0006",yellowBg:"FFFFF2CC",yellowTxt:"FF7D6608"}
-// Las columnas que tendrá el archivo de salida (siempre 12)
-const OUTPUT_HEADERS = ["FECHA","BENEFICIARIO","TIPO ID","IDENTIFICACIÓN","BANCO","TIPO CUENTA","CUENTA BENEFICIARIA","IMPORTE (COP)","FORMA DE PAGO","CONCEPTO","ESTADO","MOTIVO DE RECHAZO"]
-const COL_WIDTHS = [12,38,10,20,20,14,24,18,20,12,14,28]
+const COL_WIDTHS=[12,38,10,20,20,14,24,18,20,12,14,28]
+const HEADERS=["FECHA","BENEFICIARIO","TIPO ID","IDENTIFICACIÓN","BANCO","TIPO CUENTA","CUENTA BENEFICIARIA","IMPORTE (COP)","FORMA DE PAGO","CONCEPTO","ESTADO","MOTIVO DE RECHAZO"]
+let currentFile=null
+const $=id=>document.getElementById(id)
+const dropZone=$('drop-zone'),fileInput=$('file-input'),fileInfo=$('file-info')
+const fnameEl=$('fname'),fsizeEl=$('fsize'),btnRemove=$('btn-remove')
+const btnProcess=$('btn-process'),progressWrap=$('progress-wrap')
+const progressMsg=$('progress-msg'),progressSub=$('progress-sub'),pbar=$('pbar')
+const successWrap=$('success-wrap'),recCount=$('rec-count'),btnReset=$('btn-reset')
+const errorWrap=$('error-wrap'),warningDiv=$('warning-area')
+const fmtSize=b=>b>1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB'
 
-let currentFile = null
-const $ = id => document.getElementById(id)
-const dropZone = $('drop-zone'), fileInput = $('file-input'), fileInfo = $('file-info')
-const fnameEl = $('fname'), fsizeEl = $('fsize'), btnRemove = $('btn-remove')
-const btnProcess = $('btn-process'), progressWrap = $('progress-wrap')
-const progressMsg = $('progress-msg'), progressSub = $('progress-sub'), pbar = $('pbar')
-const successWrap = $('success-wrap'), recCount = $('rec-count'), btnReset = $('btn-reset')
-const errorWrap = $('error-wrap'), warningDiv = $('warning-area')
-const fmtSize = b => b > 1048576 ? (b/1048576).toFixed(1)+' MB' : Math.round(b/1024)+' KB'
-
-// Función robusta de parseo de fechas (igual que antes)
+// ---------- FUNCIÓN ROBUSTA DE FECHAS ----------
 function parseDateValue(valor) {
   if (!valor && valor !== 0) return null;
   if (valor instanceof Date && !isNaN(valor)) return valor;
@@ -190,163 +183,169 @@ function parseDateValue(valor) {
     }
     let iso = new Date(s);
     if (!isNaN(iso)) return iso;
+    console.warn('Fecha no interpretable:', s);
     return null;
   }
   return null;
 }
 
-// Validación estricta: primera fila (header) no debe tener celdas vacías
-function validateHeadersHaveNoBlanks(headerRow) {
-  for (let i=0; i<headerRow.length; i++) {
-    let cell = headerRow[i];
-    if (cell === undefined || cell === null || (typeof cell === 'string' && cell.trim() === '')) {
-      return { valid: false, colIndex: i+1 };
+// ---------- VALIDACIÓN DE ENCABEZADOS (ninguna celda vacía) ----------
+function validateHeaders(headerRow) {
+  // Recorremos todas las celdas de la fila de encabezados (hasta la última no vacía)
+  let lastCol = -1;
+  for (let i = 0; i < headerRow.length; i++) {
+    if (headerRow[i] !== undefined && headerRow[i] !== null && String(headerRow[i]).trim() !== '') {
+      lastCol = i;
     }
   }
-  return { valid: true };
-}
-
-// Mapeo flexible: busca columnas por coincidencia parcial (sin distinguir mayúsculas/minúsculas)
-// Retorna el índice de la columna en el archivo original, o -1 si no se encuentra.
-function findColumnIndex(headerRow, keywords) {
-  for (let kw of keywords) {
-    let upperKw = kw.toUpperCase();
-    let idx = headerRow.findIndex(cell => {
-      if (cell === undefined || cell === null) return false;
-      let cellStr = String(cell).trim().toUpperCase();
-      return cellStr.includes(upperKw);
-    });
-    if (idx !== -1) return idx;
+  if (lastCol === -1) throw new Error('La fila de encabezados está completamente vacía.');
+  
+  const emptyCols = [];
+  for (let i = 0; i <= lastCol; i++) {
+    let val = headerRow[i];
+    if (val === undefined || val === null || String(val).trim() === '') {
+      emptyCols.push(i+1); // número de columna humano (1-indexed)
+    }
   }
-  return -1;
+  if (emptyCols.length > 0) {
+    throw new Error(`⚠️ Las siguientes columnas tienen el encabezado vacío: ${emptyCols.join(', ')}. Todas las columnas deben tener un nombre en la primera fila.`);
+  }
+  return true;
 }
 
-// Procesamiento principal: lee rawData (array de arrays) y devuelve { records, warnings array }
-function parseSourceFlexible(rawData) {
-  // Buscar la primera fila que contenga al menos una celda no vacía (asumimos que es la fila de encabezados)
+// ---------- MAPEO FLEXIBLE DE COLUMNAS (sinónimos) ----------
+function mapColumns(headerRow) {
+  // Función auxiliar para buscar coincidencia parcial (case-insensitive)
+  const findColumn = (targetKeywords) => {
+    for (let i = 0; i < headerRow.length; i++) {
+      let cell = String(headerRow[i] || '').trim().toUpperCase();
+      for (let kw of targetKeywords) {
+        if (cell.includes(kw)) return i;
+      }
+    }
+    return -1;
+  };
+
+  // Mapeo de cada columna destino a posibles nombres en el origen
+  const mapping = {
+    fecha: ['FECHA', 'DATE', 'FECH', 'FECHA PAGO'],
+    beneficiario: ['BENEFICIARIO', 'BENEFICIARIA', 'NOMBRE', 'RAZON SOCIAL'],
+    tipoId: ['TIPO ID', 'TIPO DE IDENTIFICACION', 'TIPO IDENTIFICACION', 'TIPO DOCUMENTO', 'TIPO DE DOCUMENTO'],
+    identificacion: ['IDENTIFICACION', 'IDENTIFICACIÓN', 'NUMERO IDENTIFICACION', 'NUMERO DOCUMENTO', 'CEDULA', 'NIT'],
+    banco: ['BANCO', 'ENTIDAD BANCARIA'],
+    tipoCuenta: ['TIPO CUENTA', 'TIPO DE CUENTA', 'TIPOCUENTA'],
+    cuenta: ['CUENTA BENEFICIARIA', 'CUENTA BENEF', 'NUMERO CUENTA', 'CUENTA'],
+    importe: ['IMPORTE', 'VALOR', 'MONTO', 'IMPORTE (COP)'],
+    formaPago: ['FORMA DE PAGO', 'FORMA PAGO', 'FORMA', 'MEDIO DE PAGO'],
+    concepto: ['CONCEPTO', 'DESCRIPCION', 'DETALLE', 'CONCEPTO PAGO'],
+    estado: ['ESTADO', 'STATUS', 'ESTATUS', 'ESTADO DE LA TRANSACCIÓN'],
+    motivo: ['MOTIVO DE RECHAZO', 'MOTIVO RECHAZO', 'RAZON RECHAZO', 'CAUSA RECHAZO']
+  };
+
+  const indices = {};
+  let missingWarnings = [];
+  for (let [key, keywords] of Object.entries(mapping)) {
+    let idx = findColumn(keywords);
+    if (idx === -1) {
+      missingWarnings.push(`⚠️ No se encontró columna para "${key}". Se dejará vacía en el resultado.`);
+      indices[key] = -1;
+    } else {
+      indices[key] = idx;
+    }
+  }
+  return { indices, missingWarnings };
+}
+
+// ---------- LECTURA DE DATOS USANDO ÍNDICES MAPEADOS ----------
+function parseSource(rawData) {
+  // Encontrar fila de encabezados (donde aparece BENEFICIARIO)
   let headerRowIndex = -1;
-  for (let i=0; i<rawData.length; i++) {
-    if (rawData[i] && rawData[i].some(cell => cell !== undefined && cell !== null && String(cell).trim() !== '')) {
+  for (let i = 0; i < rawData.length; i++) {
+    if (rawData[i].some(v => typeof v === 'string' && v.trim().toUpperCase() === 'BENEFICIARIO')) {
       headerRowIndex = i;
       break;
     }
   }
-  if (headerRowIndex === -1) throw new Error("No se encontraron datos en el archivo.");
-
-  let headerRow = rawData[headerRowIndex].map(cell => (cell !== undefined && cell !== null) ? String(cell).trim() : '');
+  if (headerRowIndex === -1) throw new Error("No se encontró la columna 'BENEFICIARIO' en la primera fila.");
   
-  // Validar que no haya encabezados vacíos
-  const headerValidation = validateHeadersHaveNoBlanks(headerRow);
-  if (!headerValidation.valid) {
-    throw new Error(`La columna ${headerValidation.colIndex} tiene el encabezado vacío. Todas las columnas deben tener un nombre en la primera fila.`);
+  const headerRow = rawData[headerRowIndex].map(v => (v || '').toString().trim());
+  
+  // 1. Validar que no haya encabezados vacíos
+  validateHeaders(headerRow);
+  
+  // 2. Mapear columnas
+  const { indices, missingWarnings } = mapColumns(headerRow);
+  
+  // Mostrar advertencias si faltan columnas (pero no detener)
+  let warningMsg = null;
+  if (missingWarnings.length > 0) {
+    warningMsg = missingWarnings.join(' ');
   }
-
-  // Mapear índices buscando coincidencias flexibles con los encabezados deseados
-  const colMap = {
-    fecha: findColumnIndex(headerRow, ['FECHA', 'DATE', 'FECH']),
-    beneficiario: findColumnIndex(headerRow, ['BENEFICIARIO', 'BENEFICIARIA', 'BENEF']),
-    tipoId: findColumnIndex(headerRow, ['TIPO ID', 'TIPOIDENTIFICACION', 'TIPO IDENTIFICACION']),
-    identificacion: findColumnIndex(headerRow, ['IDENTIFICACION', 'IDENTIFICACIÓN', 'NUMERO IDENTIFICACION', 'CEDULA', 'CÉDULA', 'ID']),
-    banco: findColumnIndex(headerRow, ['BANCO']),
-    tipoCuenta: findColumnIndex(headerRow, ['TIPO CUENTA', 'TIPOCUENTA', 'TIPO DE CUENTA']),
-    cuenta: findColumnIndex(headerRow, ['CUENTA BENEFICIARIA', 'CUENTA BENEF', 'NUMERO CUENTA', 'CUENTA']),
-    importe: findColumnIndex(headerRow, ['IMPORTE', 'VALOR', 'MONTO', 'CANTIDAD', 'PRECIO']),
-    formaPago: findColumnIndex(headerRow, ['FORMA DE PAGO', 'FORMA PAGO', 'FORMA', 'MEDIO PAGO']),
-    concepto: findColumnIndex(headerRow, ['CONCEPTO', 'DESCRIPCION', 'DETALLE']),
-    estado: findColumnIndex(headerRow, ['ESTADO', 'STATUS', 'ESTATUS']),
-    motivo: findColumnIndex(headerRow, ['MOTIVO DE RECHAZO', 'MOTIVO RECHAZO', 'RAZON RECHAZO', 'MOTIVO'])
-  };
-
-  // Recolectar advertencias (no bloqueantes)
-  let warnings = [];
-  if (colMap.beneficiario === -1) warnings.push("No se encontró una columna de BENEFICIARIO. Se dejará vacía en el resultado.");
-  if (colMap.importe === -1) warnings.push("No se encontró una columna de IMPORTE. No se agregará fila de totales.");
-  if (colMap.estado === -1) warnings.push("No se encontró una columna de ESTADO. No se aplicarán colores por estado.");
-  if (colMap.fecha === -1) warnings.push("No se encontró una columna de FECHA. La columna de fecha quedará vacía.");
-
-  // Leer registros desde la fila siguiente a la cabecera
+  
+  // 3. Leer registros
   const records = [];
-  for (let i=headerRowIndex+1; i<rawData.length; i++) {
+  for (let i = headerRowIndex + 1; i < rawData.length; i++) {
     const row = rawData[i];
-    // Si la fila está completamente vacía, la saltamos
-    if (!row || row.every(cell => cell === undefined || cell === null || String(cell).trim() === '')) continue;
+    const beneficiario = indices.beneficiario !== -1 ? row[indices.beneficiario] : null;
+    if (!beneficiario || String(beneficiario).trim() === '') continue;
     
-    // Beneficiario: si no se encuentra, intentamos tomar la primera columna no vacía (pero mejor dejarlo vacío)
-    let beneficiario = '';
-    if (colMap.beneficiario !== -1) {
-      beneficiario = row[colMap.beneficiario] !== undefined ? String(row[colMap.beneficiario]).trim() : '';
-    } else {
-      // Si no hay columna beneficiario, la fila no se descarta, solo el campo queda vacío
-      beneficiario = '';
-    }
-    // Si no hay beneficiario, igual la incluimos (podría tener otras columnas útiles)
-    // No filtramos por beneficiario vacío para no perder datos.
-    
-    let fechaRaw = colMap.fecha !== -1 ? row[colMap.fecha] : null;
-    let fechaObj = parseDateValue(fechaRaw);
+    // Fecha
+    let rawFecha = indices.fecha !== -1 ? row[indices.fecha] : null;
+    let fechaObj = parseDateValue(rawFecha);
     let fechaFinal = (fechaObj instanceof Date && !isNaN(fechaObj)) ? fechaObj : null;
     
-    let importe = 0;
-    if (colMap.importe !== -1) {
-      let rawImp = row[colMap.importe];
-      if (rawImp !== undefined && rawImp !== null && rawImp !== '') {
-        importe = parseFloat(String(rawImp).replace(/[$,]/g, '')) || 0;
-      }
-    }
+    // Importe
+    let importe = indices.importe !== -1 ? row[indices.importe] : 0;
+    importe = parseFloat(importe) || 0;
     
-    const get = (idx) => idx !== -1 && row[idx] !== undefined ? String(row[idx]).trim() : '';
+    // El resto de campos
+    const getVal = (idx) => idx !== -1 ? String(row[idx] || '').trim() : '';
     
     records.push({
       fecha: fechaFinal,
-      beneficiario: beneficiario || get(colMap.beneficiario), // redundante
-      tipoId: get(colMap.tipoId),
-      identificacion: get(colMap.identificacion),
-      banco: get(colMap.banco),
-      tipoCuenta: get(colMap.tipoCuenta),
-      cuenta: get(colMap.cuenta),
+      beneficiario: getVal(indices.beneficiario),
+      tipoId: getVal(indices.tipoId),
+      identificacion: getVal(indices.identificacion),
+      banco: getVal(indices.banco),
+      tipoCuenta: getVal(indices.tipoCuenta),
+      cuenta: getVal(indices.cuenta),
       importe: importe,
-      formaPago: get(colMap.formaPago),
-      concepto: get(colMap.concepto),
-      estado: get(colMap.estado),
-      motivo: get(colMap.motivo)
+      formaPago: getVal(indices.formaPago),
+      concepto: getVal(indices.concepto),
+      estado: getVal(indices.estado),
+      motivo: getVal(indices.motivo)
     });
   }
   
-  return { records, warnings };
+  if (records.length === 0) throw new Error("No se encontraron registros válidos (la columna BENEFICIARIO está vacía en todas las filas).");
+  
+  return { records, warning: warningMsg };
 }
 
-// Construcción del workbook de salida usando ExcelJS
-async function buildWorkbook(ExcelJS, records, warnings) {
+// ---------- CONSTRUCCIÓN DEL WORKBOOK (EXCELJS) ----------
+async function buildWorkbook(ExcelJS, records) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('ORGANIZADO');
-  const border = {top:{style:'thin',color:{argb:'FFBFBFBF'}},bottom:{style:'thin',color:{argb:'FFBFBFBF'}},left:{style:'thin',color:{argb:'FFBFBFBF'}},right:{style:'thin',color:{argb:'FFBFBFBF'}}};
-  const headerFill = {type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}};
-  
-  // Agregar encabezados de salida (siempre 12 columnas)
-  const headerRow = ws.addRow(OUTPUT_HEADERS);
-  headerRow.height = 28;
-  headerRow.eachCell(cell => {
+  const bdr = {top:{style:'thin',color:{argb:'FFBFBFBF'}},bottom:{style:'thin',color:{argb:'FFBFBFBF'}},left:{style:'thin',color:{argb:'FFBFBFBF'}},right:{style:'thin',color:{argb:'FFBFBFBF'}}};
+  const hFill = {type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}};
+  const hRow = ws.addRow(HEADERS);
+  hRow.height = 28;
+  hRow.eachCell(cell => {
     cell.font = {name:'Arial',bold:true,color:{argb:'FFFFFFFF'},size:10};
-    cell.fill = headerFill;
+    cell.fill = hFill;
     cell.alignment = {horizontal:'center',vertical:'middle',wrapText:true};
-    cell.border = border;
+    cell.border = bdr;
   });
-  
-  // Determinar si existe columna de importe para la suma
-  const hasImporte = records.some(r => typeof r.importe === 'number' && !isNaN(r.importe));
-  
-  // Escribir registros
-  records.forEach((rec, idx) => {
-    const isEven = (idx+2) % 2 === 0;
-    const rowFill = {type:'pattern',pattern:'solid',fgColor:{argb:isEven ? COLORS.rowEven : COLORS.rowOdd}};
-    // Color por estado si existe columna estado
+
+  records.forEach((rec, i) => {
+    const isEven = (i+2)%2===0;
+    const rowFill = {type:'pattern',pattern:'solid',fgColor:{argb:isEven?COLORS.rowEven:COLORS.rowOdd}};
     const estadoNorm = (rec.estado || '').trim().toLowerCase();
-    let estadoBg = null, estadoTxt = null;
-    if (estadoNorm === 'exitoso') { estadoBg = COLORS.greenBg; estadoTxt = COLORS.greenTxt; }
-    else if (estadoNorm === 'rechazado') { estadoBg = COLORS.redBg; estadoTxt = COLORS.redTxt; }
-    else if (rec.estado && rec.estado !== '') { estadoBg = COLORS.yellowBg; estadoTxt = COLORS.yellowTxt; }
+    const [eBg, eTxt] = estadoNorm === 'exitoso' ? [COLORS.greenBg, COLORS.greenTxt] :
+                         estadoNorm === 'rechazado' ? [COLORS.redBg, COLORS.redTxt] :
+                         [COLORS.yellowBg, COLORS.yellowTxt];
+    let fechaValor = (rec.fecha instanceof Date && !isNaN(rec.fecha)) ? rec.fecha : undefined;
     
-    const fechaValor = (rec.fecha instanceof Date && !isNaN(rec.fecha)) ? rec.fecha : undefined;
     const row = ws.addRow([
       fechaValor,
       rec.beneficiario,
@@ -362,67 +361,54 @@ async function buildWorkbook(ExcelJS, records, warnings) {
       rec.motivo
     ]);
     
-    row.eachCell({includeEmpty: true}, (cell, colNum) => {
+    row.eachCell({includeEmpty:true}, (cell, col) => {
       cell.font = {name:'Arial',size:10};
-      cell.border = border;
-      if (colNum === 1) {
+      cell.border = bdr;
+      if (col === 1) {
         cell.fill = rowFill;
         cell.alignment = {horizontal:'center',vertical:'middle'};
         if (rec.fecha instanceof Date) cell.numFmt = 'DD/MM/YYYY';
-      }
-      else if (colNum === 8) {
+      } else if (col === 8) {
         cell.fill = rowFill;
         cell.alignment = {horizontal:'right',vertical:'middle'};
         cell.numFmt = '#,##0';
-      }
-      else if (colNum === 11 && estadoBg) {
-        cell.fill = {type:'pattern',pattern:'solid',fgColor:{argb:estadoBg}};
-        cell.font = {name:'Arial',size:10,bold:true,color:{argb:estadoTxt}};
+      } else if (col === 11) {
+        cell.fill = {type:'pattern',pattern:'solid',fgColor:{argb:eBg}};
+        cell.font = {name:'Arial',size:10,bold:true,color:{argb:eTxt}};
         cell.alignment = {horizontal:'center',vertical:'middle'};
-      }
-      else if ([3,4,6,7,9,10].includes(colNum)) {
+      } else if ([3,4,6,7,9,10].includes(col)) {
         cell.fill = rowFill;
         cell.alignment = {horizontal:'center',vertical:'middle'};
-      }
-      else {
+      } else {
         cell.fill = rowFill;
         cell.alignment = {horizontal:'left',vertical:'middle'};
       }
     });
   });
-  
-  // Fila de totales solo si existe al menos un importe numérico
-  if (hasImporte && records.length > 0) {
-    const lastRowNum = records.length + 1;
-    const totalRow = ws.addRow(new Array(12).fill(''));
-    totalRow.height = 24;
-    totalRow.getCell(1).value = 'TOTAL';
-    totalRow.getCell(8).value = {formula: `SUM(H2:H${lastRowNum})`};
-    totalRow.getCell(8).numFmt = '#,##0';
-    const totalFill = {type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}};
-    totalRow.eachCell((cell, col) => {
-      cell.fill = totalFill;
-      cell.border = border;
-      cell.font = {name:'Arial',bold:true,color:{argb:'FFFFFFFF'},size:11};
-      cell.alignment = {horizontal: col===1 ? 'center' : col===8 ? 'right' : 'center', vertical:'middle'};
-    });
-  }
-  
-  // Filtros automáticos desde A1 hasta L{última fila con datos}
-  const lastDataRow = records.length + 1;
-  ws.autoFilter = {from: 'A1', to: `L${lastDataRow}`};
-  ws.views = [{state: 'frozen', ySplit: 1}];
+
+  const lastData = records.length + 1;
+  const tRow = ws.addRow(new Array(12).fill(''));
+  tRow.height = 24;
+  tRow.getCell(1).value = 'TOTAL';
+  tRow.getCell(8).value = {formula: `SUM(H2:H${lastData})`};
+  tRow.getCell(8).numFmt = '#,##0';
+  const tFill = {type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}};
+  tRow.eachCell({includeEmpty:true}, (cell, col) => {
+    cell.fill = tFill;
+    cell.border = bdr;
+    cell.font = {name:'Arial',bold:true,color:{argb:'FFFFFFFF'},size:11};
+    cell.alignment = {horizontal: col===1?'center':col===8?'right':'center', vertical:'middle'};
+  });
+
+  ws.autoFilter = {from:'A1',to:`L${lastData}`};
+  ws.views = [{state:'frozen',ySplit:1}];
   COL_WIDTHS.forEach((w,i) => ws.getColumn(i+1).width = w);
-  
   return wb;
 }
 
-// UI handlers
+// ---------- UI MANEJADORES ----------
 function setFile(file) {
-  if (!file || !file.name.match(/\.xlsx?$/i)) {
-    showError('Solo se aceptan archivos .xlsx o .xls');
-    return;
-  }
+  if (!file || !file.name.match(/\.xlsx?$/i)) { showError('Solo se aceptan archivos .xlsx o .xls'); return; }
   currentFile = file;
   fnameEl.textContent = file.name;
   fsizeEl.textContent = fmtSize(file.size);
@@ -432,15 +418,15 @@ function setFile(file) {
   warningDiv.style.display = 'none';
 }
 
-function showError(msg) {
-  errorWrap.textContent = '⚠️ ' + msg;
-  errorWrap.style.display = 'block';
+function showError(msg) { 
+  errorWrap.innerHTML = `⚠️ ${msg}`;
+  errorWrap.style.display = 'block'; 
 }
 
-function setProgress(msg, pct, sub='') {
-  progressMsg.textContent = msg;
-  pbar.style.width = pct+'%';
-  progressSub.textContent = sub;
+function setProgress(msg, pct, sub='') { 
+  progressMsg.textContent = msg; 
+  pbar.style.width = pct+'%'; 
+  progressSub.textContent = sub; 
 }
 
 function reset() {
@@ -480,13 +466,10 @@ btnProcess.addEventListener('click', async () => {
     await new Promise(r => setTimeout(r, 80));
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rawData = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+    const { records, warning } = parseSource(rawData);
     
-    // Procesar y validar encabezados vacíos (lanzará error si los hay)
-    const { records, warnings } = parseSourceFlexible(rawData);
-    
-    // Mostrar advertencias si las hay
-    if (warnings.length > 0) {
-      warningDiv.innerHTML = `<span>⚠️</span> ${warnings.join(' · ')}`;
+    if (warning) {
+      warningDiv.innerHTML = `<span>⚠️</span> ${warning}`;
       warningDiv.style.display = 'flex';
       setTimeout(() => { if (warningDiv) warningDiv.style.display = 'none'; }, 8000);
     }
@@ -494,7 +477,7 @@ btnProcess.addEventListener('click', async () => {
     setProgress('Aplicando formato...', 60, `${records.length} registros encontrados`);
     await new Promise(r => setTimeout(r, 80));
     if (!window.ExcelJS) throw new Error('Librería ExcelJS no cargada. Recarga la página.');
-    const outWb = await buildWorkbook(window.ExcelJS, records, warnings);
+    const outWb = await buildWorkbook(window.ExcelJS, records);
     setProgress('Generando archivo...', 85, 'Casi listo...');
     await new Promise(r => setTimeout(r, 80));
     const outBuf = await outWb.xlsx.writeBuffer();
