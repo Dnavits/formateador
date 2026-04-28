@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PagosXLS — Formateador (solo organización)</title>
+<title>PagosXLSS — Formateador (seguro)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
-/* (el CSS es el mismo que antes, no hay cambios) */
+/* Mismo CSS que antes, sin cambios */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{ --bg:#080810; --surface:rgba(255,255,255,0.04); --surface2:rgba(255,255,255,0.07); --border:rgba(255,255,255,0.08); --border2:rgba(255,255,255,0.14); --text:#f0f0f8; --muted:rgba(255,255,255,0.4); --accent:#4f7fff; --glow1:#4f7fff; --glow2:#b94fff; --green:#22c97a; --red:#ff5c5c; --yellow:#ffb347; }
 html{scroll-behavior:smooth}
@@ -160,7 +160,6 @@ const fmtSize=b=>b>1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB'
 
 // ---------- FUNCIÓN ROBUSTA DE FECHAS (NO MODIFICA OTROS DATOS) ----------
 function parseDateValue(valor) {
-  // Si es número (serial de Excel) o string con formato, lo convertimos a Date. Si falla, devolvemos el valor original sin cambiar.
   if (!valor && valor !== 0) return null;
   if (valor instanceof Date && !isNaN(valor)) return valor;
   if (typeof valor === 'number') {
@@ -175,7 +174,7 @@ function parseDateValue(valor) {
     if (days > 59) days -= 1;
     let d = new Date(excelEpoch.getTime() + days * 86400000);
     if (!isNaN(d)) return d;
-    return valor; // si no se pudo, devolver el número original
+    return valor;
   }
   if (typeof valor === 'string') {
     let s = valor.trim();
@@ -186,7 +185,7 @@ function parseDateValue(valor) {
     }
     let iso = new Date(s);
     if (!isNaN(iso)) return iso;
-    return valor; // devolver el string original si no es fecha válida
+    return valor;
   }
   return valor;
 }
@@ -214,37 +213,49 @@ function validateHeaders(headerRow) {
   return true;
 }
 
-// ---------- MAPEO FLEXIBLE DE COLUMNAS (sinónimos) ----------
+// ---------- MAPEO PRECISO DE COLUMNAS (coincidencia exacta primero) ----------
 function mapColumns(headerRow) {
-  const findColumn = (targetKeywords) => {
-    for (let i = 0; i < headerRow.length; i++) {
-      let cell = String(headerRow[i] || '').trim().toUpperCase();
-      for (let kw of targetKeywords) {
-        if (cell.includes(kw)) return i;
+  // Normalizar: convertir a string, trim, mayúsculas
+  const norm = headerRow.map(cell => (cell !== undefined && cell !== null) ? String(cell).trim().toUpperCase() : '');
+  
+  const findColumn = (keywords, exactMatch = true) => {
+    // Primero intentar coincidencia exacta (normalizada)
+    if (exactMatch) {
+      for (let i = 0; i < norm.length; i++) {
+        for (let kw of keywords) {
+          if (norm[i] === kw) return i;
+        }
+      }
+    }
+    // Si no, coincidencia parcial (includes)
+    for (let i = 0; i < norm.length; i++) {
+      for (let kw of keywords) {
+        if (norm[i].includes(kw)) return i;
       }
     }
     return -1;
   };
-
+  
+  // Definir keywords para cada campo (priorizar las más específicas y exactas)
   const mapping = {
-    fecha: ['FECHA', 'DATE', 'FECH', 'FECHA PAGO'],
-    beneficiario: ['BENEFICIARIO', 'BENEFICIARIA', 'NOMBRE', 'RAZON SOCIAL'],
-    tipoId: ['TIPO ID', 'TIPO DE IDENTIFICACION', 'TIPO IDENTIFICACION', 'TIPO DOCUMENTO', 'TIPO DE DOCUMENTO'],
-    identificacion: ['IDENTIFICACION', 'IDENTIFICACIÓN', 'NUMERO IDENTIFICACION', 'NUMERO DOCUMENTO', 'CEDULA', 'NIT'],
-    banco: ['BANCO', 'ENTIDAD BANCARIA'],
-    tipoCuenta: ['TIPO CUENTA', 'TIPO DE CUENTA', 'TIPOCUENTA'],
-    cuenta: ['CUENTA BENEFICIARIA', 'CUENTA BENEF', 'NUMERO CUENTA', 'CUENTA'],
-    importe: ['IMPORTE', 'VALOR', 'MONTO', 'IMPORTE (COP)'],
-    formaPago: ['FORMA DE PAGO', 'FORMA PAGO', 'FORMA', 'MEDIO DE PAGO'],
-    concepto: ['CONCEPTO', 'DESCRIPCION', 'DETALLE', 'CONCEPTO PAGO'],
-    estado: ['ESTADO', 'STATUS', 'ESTATUS', 'ESTADO DE LA TRANSACCIÓN'],
-    motivo: ['MOTIVO DE RECHAZO', 'MOTIVO RECHAZO', 'RAZON RECHAZO', 'CAUSA RECHAZO']
+    fecha: { keywords: ['FECHA', 'DATE', 'FECH'], exact: true },
+    beneficiario: { keywords: ['BENEFICIARIO', 'BENEFICIARIA', 'NOMBRE', 'RAZON SOCIAL'], exact: true },
+    tipoId: { keywords: ['TIPO DE IDENTIFICACION', 'TIPO IDENTIFICACION', 'TIPO ID', 'TIPO DOCUMENTO'], exact: true },
+    identificacion: { keywords: ['NUMERO IDENTIFICACION', 'IDENTIFICACION', 'NUMERO DOCUMENTO', 'CEDULA', 'NIT'], exact: false }, // no exacta porque puede tener variantes
+    banco: { keywords: ['BANCO', 'ENTIDAD BANCARIA'], exact: true },
+    tipoCuenta: { keywords: ['TIPO DE CUENTA', 'TIPO CUENTA', 'TIPOCUENTA'], exact: true },
+    cuenta: { keywords: ['CUENTA BENEFICIARIA', 'NUMERO CUENTA', 'CUENTA BENEF', 'CUENTA'], exact: false },
+    importe: { keywords: ['IMPORTE (COP)', 'IMPORTE', 'VALOR', 'MONTO'], exact: false },
+    formaPago: { keywords: ['FORMA DE PAGO', 'FORMA PAGO', 'FORMA', 'MEDIO DE PAGO'], exact: true },
+    concepto: { keywords: ['CONCEPTO', 'DESCRIPCION', 'DETALLE'], exact: true },
+    estado: { keywords: ['ESTADO DE LA TRANSACCIÓN', 'ESTADO', 'STATUS', 'ESTATUS'], exact: false },
+    motivo: { keywords: ['MOTIVO DE RECHAZO', 'MOTIVO RECHAZO', 'RAZON RECHAZO'], exact: true }
   };
-
+  
   const indices = {};
   let missingWarnings = [];
-  for (let [key, keywords] of Object.entries(mapping)) {
-    let idx = findColumn(keywords);
+  for (let [key, cfg] of Object.entries(mapping)) {
+    let idx = findColumn(cfg.keywords, cfg.exact);
     if (idx === -1) {
       missingWarnings.push(`⚠️ No se encontró columna para "${key}". Se dejará vacía en el resultado.`);
       indices[key] = -1;
@@ -278,17 +289,17 @@ function parseSource(rawData) {
     const beneficiario = indices.beneficiario !== -1 ? row[indices.beneficiario] : null;
     if (beneficiario === undefined || beneficiario === null || String(beneficiario).trim() === '') continue;
     
-    // Fecha: intentar convertir, pero si no, dejar el valor original
+    // Fecha: intentar convertir, si no dejar original
     let fechaValue = indices.fecha !== -1 ? row[indices.fecha] : null;
     let fechaFinal = fechaValue !== null && fechaValue !== undefined ? parseDateValue(fechaValue) : null;
     
-    // Importe: convertir a número (necesario para la suma)
+    // Importe: convertir a número (necesario para suma)
     let importeRaw = indices.importe !== -1 ? row[indices.importe] : 0;
     let importeNum = (importeRaw !== undefined && importeRaw !== null) ? parseFloat(importeRaw) : 0;
     if (isNaN(importeNum)) importeNum = 0;
     
     // Para el resto de campos, tomar el valor EXACTO de la celda (sin modificar)
-    const getRaw = (idx) => (idx !== -1 && row[idx] !== undefined) ? row[idx] : '';
+    const getRaw = (idx) => (idx !== -1 && row[idx] !== undefined && row[idx] !== null) ? row[idx] : '';
     
     records.push({
       fecha: fechaFinal,
@@ -333,7 +344,6 @@ async function buildWorkbook(ExcelJS, records) {
                          estadoStr === 'rechazado' ? [COLORS.redBg, COLORS.redTxt] :
                          [COLORS.yellowBg, COLORS.yellowTxt];
     
-    // Para la fecha, si es objeto Date, lo usamos; de lo contrario, el valor original (número o string)
     let fechaValor = (rec.fecha instanceof Date && !isNaN(rec.fecha)) ? rec.fecha : rec.fecha;
     
     const row = ws.addRow([
@@ -396,7 +406,7 @@ async function buildWorkbook(ExcelJS, records) {
   return wb;
 }
 
-// ---------- UI MANEJADORES (sin cambios) ----------
+// ---------- UI MANEJADORES ----------
 function setFile(file) {
   if (!file || !file.name.match(/\.xlsx?$/i)) { showError('Solo se aceptan archivos .xlsx o .xls'); return; }
   currentFile = file;
