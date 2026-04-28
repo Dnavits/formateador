@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PagosXLSS — Formateador Profesional</title>
+<title>PagosXLS — Formateador (solo organización)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
-/* --- ESTILOS COMPLETOS (mismos que antes, solo agrego .warning-error) --- */
+/* (el CSS es el mismo que antes, no hay cambios) */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{ --bg:#080810; --surface:rgba(255,255,255,0.04); --surface2:rgba(255,255,255,0.07); --border:rgba(255,255,255,0.08); --border2:rgba(255,255,255,0.14); --text:#f0f0f8; --muted:rgba(255,255,255,0.4); --accent:#4f7fff; --glow1:#4f7fff; --glow2:#b94fff; --green:#22c97a; --red:#ff5c5c; --yellow:#ffb347; }
 html{scroll-behavior:smooth}
@@ -158,8 +158,9 @@ const successWrap=$('success-wrap'),recCount=$('rec-count'),btnReset=$('btn-rese
 const errorWrap=$('error-wrap'),warningDiv=$('warning-area')
 const fmtSize=b=>b>1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB'
 
-// ---------- FUNCIÓN ROBUSTA DE FECHAS ----------
+// ---------- FUNCIÓN ROBUSTA DE FECHAS (NO MODIFICA OTROS DATOS) ----------
 function parseDateValue(valor) {
+  // Si es número (serial de Excel) o string con formato, lo convertimos a Date. Si falla, devolvemos el valor original sin cambiar.
   if (!valor && valor !== 0) return null;
   if (valor instanceof Date && !isNaN(valor)) return valor;
   if (typeof valor === 'number') {
@@ -172,7 +173,9 @@ function parseDateValue(valor) {
     const excelEpoch = new Date(1899, 11, 30);
     let days = Math.floor(valor);
     if (days > 59) days -= 1;
-    return new Date(excelEpoch.getTime() + days * 86400000);
+    let d = new Date(excelEpoch.getTime() + days * 86400000);
+    if (!isNaN(d)) return d;
+    return valor; // si no se pudo, devolver el número original
   }
   if (typeof valor === 'string') {
     let s = valor.trim();
@@ -183,15 +186,13 @@ function parseDateValue(valor) {
     }
     let iso = new Date(s);
     if (!isNaN(iso)) return iso;
-    console.warn('Fecha no interpretable:', s);
-    return null;
+    return valor; // devolver el string original si no es fecha válida
   }
-  return null;
+  return valor;
 }
 
 // ---------- VALIDACIÓN DE ENCABEZADOS (ninguna celda vacía) ----------
 function validateHeaders(headerRow) {
-  // Recorremos todas las celdas de la fila de encabezados (hasta la última no vacía)
   let lastCol = -1;
   for (let i = 0; i < headerRow.length; i++) {
     if (headerRow[i] !== undefined && headerRow[i] !== null && String(headerRow[i]).trim() !== '') {
@@ -204,7 +205,7 @@ function validateHeaders(headerRow) {
   for (let i = 0; i <= lastCol; i++) {
     let val = headerRow[i];
     if (val === undefined || val === null || String(val).trim() === '') {
-      emptyCols.push(i+1); // número de columna humano (1-indexed)
+      emptyCols.push(i+1);
     }
   }
   if (emptyCols.length > 0) {
@@ -215,7 +216,6 @@ function validateHeaders(headerRow) {
 
 // ---------- MAPEO FLEXIBLE DE COLUMNAS (sinónimos) ----------
 function mapColumns(headerRow) {
-  // Función auxiliar para buscar coincidencia parcial (case-insensitive)
   const findColumn = (targetKeywords) => {
     for (let i = 0; i < headerRow.length; i++) {
       let cell = String(headerRow[i] || '').trim().toUpperCase();
@@ -226,7 +226,6 @@ function mapColumns(headerRow) {
     return -1;
   };
 
-  // Mapeo de cada columna destino a posibles nombres en el origen
   const mapping = {
     fecha: ['FECHA', 'DATE', 'FECH', 'FECHA PAGO'],
     beneficiario: ['BENEFICIARIO', 'BENEFICIARIA', 'NOMBRE', 'RAZON SOCIAL'],
@@ -256,9 +255,8 @@ function mapColumns(headerRow) {
   return { indices, missingWarnings };
 }
 
-// ---------- LECTURA DE DATOS USANDO ÍNDICES MAPEADOS ----------
+// ---------- LECTURA DE DATOS RESPETANDO VALORES ORIGINALES ----------
 function parseSource(rawData) {
-  // Encontrar fila de encabezados (donde aparece BENEFICIARIO)
   let headerRowIndex = -1;
   for (let i = 0; i < rawData.length; i++) {
     if (rawData[i].some(v => typeof v === 'string' && v.trim().toUpperCase() === 'BENEFICIARIO')) {
@@ -268,61 +266,51 @@ function parseSource(rawData) {
   }
   if (headerRowIndex === -1) throw new Error("No se encontró la columna 'BENEFICIARIO' en la primera fila.");
   
-  const headerRow = rawData[headerRowIndex].map(v => (v || '').toString().trim());
+  const headerRow = rawData[headerRowIndex].map(v => (v !== undefined && v !== null) ? String(v).trim() : '');
   
-  // 1. Validar que no haya encabezados vacíos
   validateHeaders(headerRow);
-  
-  // 2. Mapear columnas
   const { indices, missingWarnings } = mapColumns(headerRow);
+  let warningMsg = missingWarnings.length ? missingWarnings.join(' ') : null;
   
-  // Mostrar advertencias si faltan columnas (pero no detener)
-  let warningMsg = null;
-  if (missingWarnings.length > 0) {
-    warningMsg = missingWarnings.join(' ');
-  }
-  
-  // 3. Leer registros
   const records = [];
   for (let i = headerRowIndex + 1; i < rawData.length; i++) {
     const row = rawData[i];
     const beneficiario = indices.beneficiario !== -1 ? row[indices.beneficiario] : null;
-    if (!beneficiario || String(beneficiario).trim() === '') continue;
+    if (beneficiario === undefined || beneficiario === null || String(beneficiario).trim() === '') continue;
     
-    // Fecha
-    let rawFecha = indices.fecha !== -1 ? row[indices.fecha] : null;
-    let fechaObj = parseDateValue(rawFecha);
-    let fechaFinal = (fechaObj instanceof Date && !isNaN(fechaObj)) ? fechaObj : null;
+    // Fecha: intentar convertir, pero si no, dejar el valor original
+    let fechaValue = indices.fecha !== -1 ? row[indices.fecha] : null;
+    let fechaFinal = fechaValue !== null && fechaValue !== undefined ? parseDateValue(fechaValue) : null;
     
-    // Importe
-    let importe = indices.importe !== -1 ? row[indices.importe] : 0;
-    importe = parseFloat(importe) || 0;
+    // Importe: convertir a número (necesario para la suma)
+    let importeRaw = indices.importe !== -1 ? row[indices.importe] : 0;
+    let importeNum = (importeRaw !== undefined && importeRaw !== null) ? parseFloat(importeRaw) : 0;
+    if (isNaN(importeNum)) importeNum = 0;
     
-    // El resto de campos
-    const getVal = (idx) => idx !== -1 ? String(row[idx] || '').trim() : '';
+    // Para el resto de campos, tomar el valor EXACTO de la celda (sin modificar)
+    const getRaw = (idx) => (idx !== -1 && row[idx] !== undefined) ? row[idx] : '';
     
     records.push({
       fecha: fechaFinal,
-      beneficiario: getVal(indices.beneficiario),
-      tipoId: getVal(indices.tipoId),
-      identificacion: getVal(indices.identificacion),
-      banco: getVal(indices.banco),
-      tipoCuenta: getVal(indices.tipoCuenta),
-      cuenta: getVal(indices.cuenta),
-      importe: importe,
-      formaPago: getVal(indices.formaPago),
-      concepto: getVal(indices.concepto),
-      estado: getVal(indices.estado),
-      motivo: getVal(indices.motivo)
+      beneficiario: getRaw(indices.beneficiario),
+      tipoId: getRaw(indices.tipoId),
+      identificacion: getRaw(indices.identificacion),
+      banco: getRaw(indices.banco),
+      tipoCuenta: getRaw(indices.tipoCuenta),
+      cuenta: getRaw(indices.cuenta),
+      importe: importeNum,
+      formaPago: getRaw(indices.formaPago),
+      concepto: getRaw(indices.concepto),
+      estado: getRaw(indices.estado),
+      motivo: getRaw(indices.motivo)
     });
   }
   
   if (records.length === 0) throw new Error("No se encontraron registros válidos (la columna BENEFICIARIO está vacía en todas las filas).");
-  
   return { records, warning: warningMsg };
 }
 
-// ---------- CONSTRUCCIÓN DEL WORKBOOK (EXCELJS) ----------
+// ---------- CONSTRUCCIÓN DEL WORKBOOK (RESPETANDO VALORES) ----------
 async function buildWorkbook(ExcelJS, records) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('ORGANIZADO');
@@ -340,11 +328,13 @@ async function buildWorkbook(ExcelJS, records) {
   records.forEach((rec, i) => {
     const isEven = (i+2)%2===0;
     const rowFill = {type:'pattern',pattern:'solid',fgColor:{argb:isEven?COLORS.rowEven:COLORS.rowOdd}};
-    const estadoNorm = (rec.estado || '').trim().toLowerCase();
-    const [eBg, eTxt] = estadoNorm === 'exitoso' ? [COLORS.greenBg, COLORS.greenTxt] :
-                         estadoNorm === 'rechazado' ? [COLORS.redBg, COLORS.redTxt] :
+    let estadoStr = (rec.estado !== undefined && rec.estado !== null) ? String(rec.estado).trim().toLowerCase() : '';
+    const [eBg, eTxt] = estadoStr === 'exitoso' ? [COLORS.greenBg, COLORS.greenTxt] :
+                         estadoStr === 'rechazado' ? [COLORS.redBg, COLORS.redTxt] :
                          [COLORS.yellowBg, COLORS.yellowTxt];
-    let fechaValor = (rec.fecha instanceof Date && !isNaN(rec.fecha)) ? rec.fecha : undefined;
+    
+    // Para la fecha, si es objeto Date, lo usamos; de lo contrario, el valor original (número o string)
+    let fechaValor = (rec.fecha instanceof Date && !isNaN(rec.fecha)) ? rec.fecha : rec.fecha;
     
     const row = ws.addRow([
       fechaValor,
@@ -406,7 +396,7 @@ async function buildWorkbook(ExcelJS, records) {
   return wb;
 }
 
-// ---------- UI MANEJADORES ----------
+// ---------- UI MANEJADORES (sin cambios) ----------
 function setFile(file) {
   if (!file || !file.name.match(/\.xlsx?$/i)) { showError('Solo se aceptan archivos .xlsx o .xls'); return; }
   currentFile = file;
