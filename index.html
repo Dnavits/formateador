@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PagosXLS — Formateador</title>
+<title>PagosXLSS — Formateador</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
@@ -169,22 +169,20 @@ function parseDateValue(valor) {
   
   // Si es número (serial de Excel)
   if (typeof valor === 'number') {
-    // Usar parse_date_code de XLSX si está disponible
     if (typeof XLSX !== 'undefined' && XLSX.SSF && XLSX.SSF.parse_date_code) {
       try {
         const d = XLSX.SSF.parse_date_code(valor);
         return new Date(d.y, d.m - 1, d.d);
       } catch(e) { /* fallback manual */ }
     }
-    // Fallback manual (Excel serial, 1900 system)
     const excelEpoch = new Date(1899, 11, 30);
     const msPerDay = 86400000;
     let days = Math.floor(valor);
-    if (days > 59) days -= 1; // Excel bug con 1900 leap year
+    if (days > 59) days -= 1;
     return new Date(excelEpoch.getTime() + days * msPerDay);
   }
   
-  // Si es string: probar formatos
+  // Si es string: probar formatos comunes
   if (typeof valor === 'string') {
     let s = valor.trim();
     // DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY
@@ -196,25 +194,21 @@ function parseDateValue(valor) {
       let d = new Date(year, month, day);
       if (!isNaN(d)) return d;
     }
-    // YYYY-MM-DD o ISO
+    // YYYY-MM-DD
     let iso = new Date(s);
     if (!isNaN(iso)) return iso;
     
-    // Fallback genérico
-    let generic = new Date(s);
-    if (!isNaN(generic)) return generic;
-    
-    console.warn('No se pudo interpretar fecha:', s);
-    return null;
+    console.warn('[Fecha no interpretable]', s);
+    return null;  // ⚠️ No se pudo parsear → devolvemos null, NO el string original
   }
   return null;
 }
 
-// ========== PARSEO MEJORADO CON FECHAS ROBUSTAS ==========
+// ========== PARSEO MEJORADO CON DETECCIÓN DE COLUMNA FECHA MÁS FLEXIBLE ==========
 function parseSource(rawData) {
   let hi = -1;
   for (let i = 0; i < rawData.length; i++) {
-    if (rawData[i].some(v => typeof v === 'string' && v.trim() === 'BENEFICIARIO')) {
+    if (rawData[i].some(v => typeof v === 'string' && v.trim().toUpperCase() === 'BENEFICIARIO')) {
       hi = i;
       break;
     }
@@ -222,33 +216,49 @@ function parseSource(rawData) {
   if (hi === -1) throw new Error("No se encontró la columna 'BENEFICIARIO'.");
 
   const h = rawData[hi].map(v => (v || '').toString().trim().toUpperCase());
-  const fi = k => h.findIndex(x => x.includes(k));
+  
+  // Función para buscar columna con coincidencia parcial (más tolerante)
+  const findColumn = (keywords) => {
+    for (let kw of keywords) {
+      let idx = h.findIndex(cell => cell.includes(kw));
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  };
   
   const idx = {
-    fecha: fi('FECHA') !== -1 ? fi('FECHA') : 1,
+    fecha: findColumn(['FECHA', 'DATE', 'FECH', 'FECHA PAGO']),
     benef: h.indexOf('BENEFICIARIO'),
-    tipoId: h.findIndex(x => x.includes('IDENTIFICACION') && x.includes('TIPO')),
-    ident: h.indexOf('IDENTIFICACION'),
+    tipoId: findColumn(['TIPO ID', 'TIPOIDENTIFICACION', 'TIPO IDENTIFICACION']),
+    ident: findColumn(['IDENTIFICACION', 'IDENTIFICACIÓN', 'NUMERO IDENTIFICACION']),
     banco: h.indexOf('BANCO'),
-    tipoCta: h.findIndex(x => x.includes('TIPO') && x.includes('CUENTA')),
-    cuenta: h.findIndex(x => x.includes('CUENTA') && x.includes('BENEF')),
-    importe: fi('IMPORTE'),
-    forma: fi('FORMA'),
-    conc: h.indexOf('CONCEPTO'),
-    estado: fi('ESTADO'),
-    motivo: fi('MOTIVO')
+    tipoCta: findColumn(['TIPO CUENTA', 'TIPOCUENTA', 'TIPO DE CUENTA']),
+    cuenta: findColumn(['CUENTA BENEFICIARIA', 'CUENTA BENEF', 'NUMERO CUENTA']),
+    importe: findColumn(['IMPORTE', 'VALOR', 'MONTO']),
+    forma: findColumn(['FORMA DE PAGO', 'FORMA PAGO', 'FORMA']),
+    conc: findColumn(['CONCEPTO', 'DESCRIPCION', 'DETALLE']),
+    estado: findColumn(['ESTADO', 'STATUS', 'ESTATUS']),
+    motivo: findColumn(['MOTIVO DE RECHAZO', 'MOTIVO RECHAZO', 'RAZON RECHAZO', 'MOTIVO'])
   };
+  
+  // Verificar columnas obligatorias
+  if (idx.fecha === -1) throw new Error("No se encontró una columna de FECHA (buscamos: FECHA, DATE, FECH, FECHA PAGO)");
+  if (idx.importe === -1) throw new Error("No se encontró una columna de IMPORTE (buscamos: IMPORTE, VALOR, MONTO)");
 
   const records = [];
+  let fechaParseErrors = 0;
+  
   for (let i = hi + 1; i < rawData.length; i++) {
     const row = rawData[i];
     const benef = idx.benef >= 0 ? row[idx.benef] : null;
     if (!benef || !String(benef).trim()) continue;
 
-    // Fecha robusta
     let rawFecha = idx.fecha >= 0 ? row[idx.fecha] : null;
     let fechaObj = parseDateValue(rawFecha);
-    let fechaFinal = (fechaObj instanceof Date && !isNaN(fechaObj)) ? fechaObj : rawFecha;
+    let fechaFinal = (fechaObj instanceof Date && !isNaN(fechaObj)) ? fechaObj : null;
+    if (fechaFinal === null && rawFecha !== null && rawFecha !== '') {
+      fechaParseErrors++;
+    }
 
     let importe = idx.importe >= 0 ? row[idx.importe] : 0;
     importe = parseFloat(importe) || 0;
@@ -256,7 +266,7 @@ function parseSource(rawData) {
     const g = i2 => i2 >= 0 ? String(row[i2] || '').trim() : '';
     
     records.push({
-      fecha: fechaFinal,
+      fecha: fechaFinal,   // puede ser Date o null (NUNCA string raro)
       beneficiario: g(idx.benef),
       tipoId: g(idx.tipoId),
       identificacion: g(idx.ident),
@@ -270,10 +280,14 @@ function parseSource(rawData) {
       motivo: g(idx.motivo)
     });
   }
+  
+  if (fechaParseErrors > 0) {
+    console.warn(`⚠️ No se pudieron interpretar ${fechaParseErrors} fechas (se dejarán en blanco en el Excel final).`);
+  }
   return records;
 }
 
-// ========== CONSTRUCCIÓN DEL WORKBOOK (EXCELJS) CON FORMATO DE FECHA CORRECTO ==========
+// ========== CONSTRUCCIÓN DEL WORKBOOK (EXCELJS) ==========
 async function buildWorkbook(ExcelJS, records) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('ORGANIZADO');
@@ -296,8 +310,8 @@ async function buildWorkbook(ExcelJS, records) {
                          estadoNorm === 'rechazado' ? [COLORS.redBg, COLORS.redTxt] :
                          [COLORS.yellowBg, COLORS.yellowTxt];
 
-    // Valor de fecha: si es Date lo usamos, si no lo dejamos como string
-    let fechaValor = rec.fecha instanceof Date && !isNaN(rec.fecha) ? rec.fecha : (rec.fecha || '');
+    // ⭐ Si la fecha es null o no es Date, dejamos la celda vacía (undefined)
+    let fechaValor = (rec.fecha instanceof Date && !isNaN(rec.fecha)) ? rec.fecha : undefined;
 
     const row = ws.addRow([
       fechaValor,
@@ -366,7 +380,7 @@ async function buildWorkbook(ExcelJS, records) {
   return wb;
 }
 
-// ========== MANEJADORES UI ==========
+// ========== MANEJADORES UI (igual que antes) ==========
 function setFile(file) {
   if (!file || !file.name.match(/\.xlsx?$/i)) { showError('Solo se aceptan archivos .xlsx o .xls'); return; }
   currentFile = file;
