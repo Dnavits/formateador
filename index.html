@@ -159,102 +159,289 @@ const progressMsg=$('progress-msg'),progressSub=$('progress-sub'),pbar=$('pbar')
 const successWrap=$('success-wrap'),recCount=$('rec-count'),btnReset=$('btn-reset')
 const errorWrap=$('error-wrap')
 const fmtSize=b=>b>1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB'
-function setFile(file){
-  if(!file||!file.name.match(/\.xlsx?$/i)){showError('Solo se aceptan archivos .xlsx o .xls');return}
-  currentFile=file;fnameEl.textContent=file.name;fsizeEl.textContent=fmtSize(file.size)
-  fileInfo.style.display='flex';btnProcess.style.display='block';errorWrap.style.display='none'
-}
-function showError(msg){errorWrap.textContent='⚠️  '+msg;errorWrap.style.display='block'}
-function setProgress(msg,pct,sub=''){progressMsg.textContent=msg;pbar.style.width=pct+'%';progressSub.textContent=sub}
-function reset(){
-  currentFile=null;fileInput.value=''
-  fileInfo.style.display='none';btnProcess.style.display='none'
-  progressWrap.style.display='none';successWrap.style.display='none'
-  errorWrap.style.display='none';dropZone.style.display='block';pbar.style.width='0%'
-}
-fileInput.addEventListener('change',e=>setFile(e.target.files[0]))
-btnRemove.addEventListener('click',reset)
-btnReset.addEventListener('click',reset)
-dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('over')})
-dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('over'))
-dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('over');setFile(e.dataTransfer.files[0])})
-function parseSource(rawData){
-  let hi=-1
-  for(let i=0;i<rawData.length;i++){if(rawData[i].some(v=>typeof v==='string'&&v.trim()==='BENEFICIARIO')){hi=i;break}}
-  if(hi===-1)throw new Error("No se encontró la columna 'BENEFICIARIO'.")
-  const h=rawData[hi].map(v=>(v||'').toString().trim().toUpperCase())
-  const fi=k=>h.findIndex(x=>x.includes(k))
-  const idx={fecha:fi('FECHA')!==-1?fi('FECHA'):1,benef:h.indexOf('BENEFICIARIO'),tipoId:h.findIndex(x=>x.includes('IDENTIFICACION')&&x.includes('TIPO')),ident:h.indexOf('IDENTIFICACION'),banco:h.indexOf('BANCO'),tipoCta:h.findIndex(x=>x.includes('TIPO')&&x.includes('CUENTA')),cuenta:h.findIndex(x=>x.includes('CUENTA')&&x.includes('BENEF')),importe:fi('IMPORTE'),forma:fi('FORMA'),conc:h.indexOf('CONCEPTO'),estado:fi('ESTADO'),motivo:fi('MOTIVO')}
-  const records=[]
-  for(let i=hi+1;i<rawData.length;i++){
-    const row=rawData[i];const benef=idx.benef>=0?row[idx.benef]:null
-    if(!benef||!String(benef).trim())continue
-    let fecha=idx.fecha>=0?row[idx.fecha]:null
-    if(typeof fecha==='number'){const d=XLSX.SSF.parse_date_code(fecha);fecha=new Date(d.y,d.m-1,d.d)}
-    let importe=idx.importe>=0?row[idx.importe]:0;importe=parseFloat(importe)||0
-    const g=i2=>i2>=0?String(row[i2]||'').trim():''
-    records.push({fecha,beneficiario:g(idx.benef),tipoId:g(idx.tipoId),identificacion:g(idx.ident),banco:g(idx.banco),tipoCuenta:g(idx.tipoCta),cuenta:g(idx.cuenta),importe,formaPago:g(idx.forma),concepto:g(idx.conc),estado:g(idx.estado),motivo:g(idx.motivo)})
+
+// ========== FUNCIÓN ROBUSTA PARA PARSEAR FECHAS ==========
+function parseDateValue(valor) {
+  if (!valor && valor !== 0) return null;
+  
+  // Si ya es Date válido
+  if (valor instanceof Date && !isNaN(valor)) return valor;
+  
+  // Si es número (serial de Excel)
+  if (typeof valor === 'number') {
+    // Usar parse_date_code de XLSX si está disponible
+    if (typeof XLSX !== 'undefined' && XLSX.SSF && XLSX.SSF.parse_date_code) {
+      try {
+        const d = XLSX.SSF.parse_date_code(valor);
+        return new Date(d.y, d.m - 1, d.d);
+      } catch(e) { /* fallback manual */ }
+    }
+    // Fallback manual (Excel serial, 1900 system)
+    const excelEpoch = new Date(1899, 11, 30);
+    const msPerDay = 86400000;
+    let days = Math.floor(valor);
+    if (days > 59) days -= 1; // Excel bug con 1900 leap year
+    return new Date(excelEpoch.getTime() + days * msPerDay);
   }
-  return records
-}
-async function buildWorkbook(ExcelJS,records){
-  const wb=new ExcelJS.Workbook();const ws=wb.addWorksheet('ORGANIZADO')
-  const bdr={top:{style:'thin',color:{argb:'FFBFBFBF'}},bottom:{style:'thin',color:{argb:'FFBFBFBF'}},left:{style:'thin',color:{argb:'FFBFBFBF'}},right:{style:'thin',color:{argb:'FFBFBFBF'}}}
-  const hFill={type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}}
-  const hRow=ws.addRow(HEADERS);hRow.height=28
-  hRow.eachCell(cell=>{cell.font={name:'Arial',bold:true,color:{argb:'FFFFFFFF'},size:10};cell.fill=hFill;cell.alignment={horizontal:'center',vertical:'middle',wrapText:true};cell.border=bdr})
-  records.forEach((rec,i)=>{
-    const isEven=(i+2)%2===0
-    const rowFill={type:'pattern',pattern:'solid',fgColor:{argb:isEven?COLORS.rowEven:COLORS.rowOdd}}
-    const el=rec.estado.trim().toLowerCase()
-    const[eBg,eTxt]=el==='exitoso'?[COLORS.greenBg,COLORS.greenTxt]:el==='rechazado'?[COLORS.redBg,COLORS.redTxt]:[COLORS.yellowBg,COLORS.yellowTxt]
-    const row=ws.addRow([rec.fecha,rec.beneficiario,rec.tipoId,rec.identificacion,rec.banco,rec.tipoCuenta,rec.cuenta,rec.importe,rec.formaPago,rec.concepto,rec.estado.trim(),rec.motivo])
-    row.eachCell({includeEmpty:true},(cell,col)=>{
-      cell.font={name:'Arial',size:10};cell.border=bdr
-      if(col===1){cell.fill=rowFill;cell.alignment={horizontal:'center',vertical:'middle'};if(rec.fecha instanceof Date)cell.numFmt='DD/MM/YYYY'}
-      else if(col===8){cell.fill=rowFill;cell.alignment={horizontal:'right',vertical:'middle'};cell.numFmt='#,##0'}
-      else if(col===11){cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:eBg}};cell.font={name:'Arial',size:10,bold:true,color:{argb:eTxt}};cell.alignment={horizontal:'center',vertical:'middle'}}
-      else if([3,4,6,7,9,10].includes(col)){cell.fill=rowFill;cell.alignment={horizontal:'center',vertical:'middle'}}
-      else{cell.fill=rowFill;cell.alignment={horizontal:'left',vertical:'middle'}}
-    })
-  })
-  const lastData=records.length+1
-  const tRow=ws.addRow(new Array(12).fill(''));tRow.height=24
-  tRow.getCell(1).value='TOTAL';tRow.getCell(8).value={formula:`SUM(H2:H${lastData})`};tRow.getCell(8).numFmt='#,##0'
-  const tFill={type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}}
-  tRow.eachCell({includeEmpty:true},(cell,col)=>{cell.fill=tFill;cell.border=bdr;cell.font={name:'Arial',bold:true,color:{argb:'FFFFFFFF'},size:11};cell.alignment={horizontal:col===1?'center':col===8?'right':'center',vertical:'middle'}})
-  ws.autoFilter={from:'A1',to:`L${lastData}`}
-  ws.views=[{state:'frozen',ySplit:1}]
-  COL_WIDTHS.forEach((w,i)=>ws.getColumn(i+1).width=w)
-  return wb
-}
-btnProcess.addEventListener('click',async()=>{
-  if(!currentFile)return
-  btnProcess.style.display='none';fileInfo.style.display='none';dropZone.style.display='none';errorWrap.style.display='none';progressWrap.style.display='block'
-  try{
-    setProgress('Leyendo archivo...',15,currentFile.name);await new Promise(r=>setTimeout(r,80))
-    const buffer=await currentFile.arrayBuffer()
-    const workbook=XLSX.read(buffer,{type:'array',cellText:false,cellDates:true})
-    setProgress('Detectando columnas...',35,`Hoja: ${workbook.SheetNames[0]}`);await new Promise(r=>setTimeout(r,80))
-    const sheet=workbook.Sheets[workbook.SheetNames[0]]
-    const rawData=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''})
-    const records=parseSource(rawData)
-    setProgress('Aplicando formato...',60,`${records.length} registros encontrados`);await new Promise(r=>setTimeout(r,80))
-    if(!window.ExcelJS)throw new Error('Librería no cargada. Recarga la página.')
-    const outWb=await buildWorkbook(window.ExcelJS,records)
-    setProgress('Generando archivo...',85,'Casi listo...');await new Promise(r=>setTimeout(r,80))
-    const outBuf=await outWb.xlsx.writeBuffer()
-    const blob=new Blob([outBuf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
-    const url=URL.createObjectURL(blob);const a=document.createElement('a')
-    a.href=url;a.download=currentFile.name.replace(/\.xlsx?$/i,'')+'_ORGANIZADO.xlsx';a.click();URL.revokeObjectURL(url)
-    setProgress('¡Listo!',100);await new Promise(r=>setTimeout(r,350))
-    progressWrap.style.display='none';recCount.textContent=records.length;successWrap.style.display='block'
-  }catch(err){
-    console.error(err);progressWrap.style.display='none'
-    dropZone.style.display='block';fileInfo.style.display='flex';btnProcess.style.display='block'
-    showError(err.message||'Error inesperado. Intenta de nuevo.')
+  
+  // Si es string: probar formatos
+  if (typeof valor === 'string') {
+    let s = valor.trim();
+    // DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY
+    let matches = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+    if (matches) {
+      let day = parseInt(matches[1], 10);
+      let month = parseInt(matches[2], 10) - 1;
+      let year = parseInt(matches[3], 10);
+      let d = new Date(year, month, day);
+      if (!isNaN(d)) return d;
+    }
+    // YYYY-MM-DD o ISO
+    let iso = new Date(s);
+    if (!isNaN(iso)) return iso;
+    
+    // Fallback genérico
+    let generic = new Date(s);
+    if (!isNaN(generic)) return generic;
+    
+    console.warn('No se pudo interpretar fecha:', s);
+    return null;
   }
-})
+  return null;
+}
+
+// ========== PARSEO MEJORADO CON FECHAS ROBUSTAS ==========
+function parseSource(rawData) {
+  let hi = -1;
+  for (let i = 0; i < rawData.length; i++) {
+    if (rawData[i].some(v => typeof v === 'string' && v.trim() === 'BENEFICIARIO')) {
+      hi = i;
+      break;
+    }
+  }
+  if (hi === -1) throw new Error("No se encontró la columna 'BENEFICIARIO'.");
+
+  const h = rawData[hi].map(v => (v || '').toString().trim().toUpperCase());
+  const fi = k => h.findIndex(x => x.includes(k));
+  
+  const idx = {
+    fecha: fi('FECHA') !== -1 ? fi('FECHA') : 1,
+    benef: h.indexOf('BENEFICIARIO'),
+    tipoId: h.findIndex(x => x.includes('IDENTIFICACION') && x.includes('TIPO')),
+    ident: h.indexOf('IDENTIFICACION'),
+    banco: h.indexOf('BANCO'),
+    tipoCta: h.findIndex(x => x.includes('TIPO') && x.includes('CUENTA')),
+    cuenta: h.findIndex(x => x.includes('CUENTA') && x.includes('BENEF')),
+    importe: fi('IMPORTE'),
+    forma: fi('FORMA'),
+    conc: h.indexOf('CONCEPTO'),
+    estado: fi('ESTADO'),
+    motivo: fi('MOTIVO')
+  };
+
+  const records = [];
+  for (let i = hi + 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    const benef = idx.benef >= 0 ? row[idx.benef] : null;
+    if (!benef || !String(benef).trim()) continue;
+
+    // Fecha robusta
+    let rawFecha = idx.fecha >= 0 ? row[idx.fecha] : null;
+    let fechaObj = parseDateValue(rawFecha);
+    let fechaFinal = (fechaObj instanceof Date && !isNaN(fechaObj)) ? fechaObj : rawFecha;
+
+    let importe = idx.importe >= 0 ? row[idx.importe] : 0;
+    importe = parseFloat(importe) || 0;
+
+    const g = i2 => i2 >= 0 ? String(row[i2] || '').trim() : '';
+    
+    records.push({
+      fecha: fechaFinal,
+      beneficiario: g(idx.benef),
+      tipoId: g(idx.tipoId),
+      identificacion: g(idx.ident),
+      banco: g(idx.banco),
+      tipoCuenta: g(idx.tipoCta),
+      cuenta: g(idx.cuenta),
+      importe: importe,
+      formaPago: g(idx.forma),
+      concepto: g(idx.conc),
+      estado: g(idx.estado),
+      motivo: g(idx.motivo)
+    });
+  }
+  return records;
+}
+
+// ========== CONSTRUCCIÓN DEL WORKBOOK (EXCELJS) CON FORMATO DE FECHA CORRECTO ==========
+async function buildWorkbook(ExcelJS, records) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('ORGANIZADO');
+  const bdr = {top:{style:'thin',color:{argb:'FFBFBFBF'}},bottom:{style:'thin',color:{argb:'FFBFBFBF'}},left:{style:'thin',color:{argb:'FFBFBFBF'}},right:{style:'thin',color:{argb:'FFBFBFBF'}}};
+  const hFill = {type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}};
+  const hRow = ws.addRow(HEADERS);
+  hRow.height = 28;
+  hRow.eachCell(cell => {
+    cell.font = {name:'Arial',bold:true,color:{argb:'FFFFFFFF'},size:10};
+    cell.fill = hFill;
+    cell.alignment = {horizontal:'center',vertical:'middle',wrapText:true};
+    cell.border = bdr;
+  });
+
+  records.forEach((rec, i) => {
+    const isEven = (i+2) % 2 === 0;
+    const rowFill = {type:'pattern',pattern:'solid',fgColor:{argb:isEven?COLORS.rowEven:COLORS.rowOdd}};
+    const estadoNorm = (rec.estado || '').trim().toLowerCase();
+    const [eBg, eTxt] = estadoNorm === 'exitoso' ? [COLORS.greenBg, COLORS.greenTxt] :
+                         estadoNorm === 'rechazado' ? [COLORS.redBg, COLORS.redTxt] :
+                         [COLORS.yellowBg, COLORS.yellowTxt];
+
+    // Valor de fecha: si es Date lo usamos, si no lo dejamos como string
+    let fechaValor = rec.fecha instanceof Date && !isNaN(rec.fecha) ? rec.fecha : (rec.fecha || '');
+
+    const row = ws.addRow([
+      fechaValor,
+      rec.beneficiario,
+      rec.tipoId,
+      rec.identificacion,
+      rec.banco,
+      rec.tipoCuenta,
+      rec.cuenta,
+      rec.importe,
+      rec.formaPago,
+      rec.concepto,
+      rec.estado.trim(),
+      rec.motivo
+    ]);
+
+    row.eachCell({includeEmpty:true}, (cell, col) => {
+      cell.font = {name:'Arial',size:10};
+      cell.border = bdr;
+      
+      if (col === 1) {
+        cell.fill = rowFill;
+        cell.alignment = {horizontal:'center',vertical:'middle'};
+        if (rec.fecha instanceof Date && !isNaN(rec.fecha)) {
+          cell.numFmt = 'DD/MM/YYYY';
+        }
+      }
+      else if (col === 8) {
+        cell.fill = rowFill;
+        cell.alignment = {horizontal:'right',vertical:'middle'};
+        cell.numFmt = '#,##0';
+      }
+      else if (col === 11) {
+        cell.fill = {type:'pattern',pattern:'solid',fgColor:{argb:eBg}};
+        cell.font = {name:'Arial',size:10,bold:true,color:{argb:eTxt}};
+        cell.alignment = {horizontal:'center',vertical:'middle'};
+      }
+      else if ([3,4,6,7,9,10].includes(col)) {
+        cell.fill = rowFill;
+        cell.alignment = {horizontal:'center',vertical:'middle'};
+      }
+      else {
+        cell.fill = rowFill;
+        cell.alignment = {horizontal:'left',vertical:'middle'};
+      }
+    });
+  });
+
+  const lastData = records.length + 1;
+  const tRow = ws.addRow(new Array(12).fill(''));
+  tRow.height = 24;
+  tRow.getCell(1).value = 'TOTAL';
+  tRow.getCell(8).value = {formula: `SUM(H2:H${lastData})`};
+  tRow.getCell(8).numFmt = '#,##0';
+  const tFill = {type:'pattern',pattern:'solid',fgColor:{argb:COLORS.darkBlue}};
+  tRow.eachCell({includeEmpty:true}, (cell, col) => {
+    cell.fill = tFill;
+    cell.border = bdr;
+    cell.font = {name:'Arial',bold:true,color:{argb:'FFFFFFFF'},size:11};
+    cell.alignment = {horizontal: col===1?'center':col===8?'right':'center', vertical:'middle'};
+  });
+
+  ws.autoFilter = {from:'A1',to:`L${lastData}`};
+  ws.views = [{state:'frozen',ySplit:1}];
+  COL_WIDTHS.forEach((w,i) => ws.getColumn(i+1).width = w);
+  return wb;
+}
+
+// ========== MANEJADORES UI ==========
+function setFile(file) {
+  if (!file || !file.name.match(/\.xlsx?$/i)) { showError('Solo se aceptan archivos .xlsx o .xls'); return; }
+  currentFile = file;
+  fnameEl.textContent = file.name;
+  fsizeEl.textContent = fmtSize(file.size);
+  fileInfo.style.display = 'flex';
+  btnProcess.style.display = 'block';
+  errorWrap.style.display = 'none';
+}
+function showError(msg) { errorWrap.textContent = '⚠️  ' + msg; errorWrap.style.display = 'block'; }
+function setProgress(msg, pct, sub='') { progressMsg.textContent = msg; pbar.style.width = pct+'%'; progressSub.textContent = sub; }
+function reset() {
+  currentFile = null;
+  fileInput.value = '';
+  fileInfo.style.display = 'none';
+  btnProcess.style.display = 'none';
+  progressWrap.style.display = 'none';
+  successWrap.style.display = 'none';
+  errorWrap.style.display = 'none';
+  dropZone.style.display = 'block';
+  pbar.style.width = '0%';
+}
+
+fileInput.addEventListener('change', e => setFile(e.target.files[0]));
+btnRemove.addEventListener('click', reset);
+btnReset.addEventListener('click', reset);
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('over'); setFile(e.dataTransfer.files[0]); });
+
+btnProcess.addEventListener('click', async () => {
+  if (!currentFile) return;
+  btnProcess.style.display = 'none';
+  fileInfo.style.display = 'none';
+  dropZone.style.display = 'none';
+  errorWrap.style.display = 'none';
+  progressWrap.style.display = 'block';
+  try {
+    setProgress('Leyendo archivo...', 15, currentFile.name);
+    await new Promise(r => setTimeout(r, 80));
+    const buffer = await currentFile.arrayBuffer();
+    const workbook = XLSX.read(buffer, {type:'array', cellText:false, cellDates:true});
+    setProgress('Detectando columnas...', 35, `Hoja: ${workbook.SheetNames[0]}`);
+    await new Promise(r => setTimeout(r, 80));
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rawData = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+    const records = parseSource(rawData);
+    setProgress('Aplicando formato...', 60, `${records.length} registros encontrados`);
+    await new Promise(r => setTimeout(r, 80));
+    if (!window.ExcelJS) throw new Error('Librería ExcelJS no cargada. Recarga la página.');
+    const outWb = await buildWorkbook(window.ExcelJS, records);
+    setProgress('Generando archivo...', 85, 'Casi listo...');
+    await new Promise(r => setTimeout(r, 80));
+    const outBuf = await outWb.xlsx.writeBuffer();
+    const blob = new Blob([outBuf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = currentFile.name.replace(/\.xlsx?$/i, '') + '_ORGANIZADO.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+    setProgress('¡Listo!', 100);
+    await new Promise(r => setTimeout(r, 350));
+    progressWrap.style.display = 'none';
+    recCount.textContent = records.length;
+    successWrap.style.display = 'block';
+  } catch (err) {
+    console.error(err);
+    progressWrap.style.display = 'none';
+    dropZone.style.display = 'block';
+    fileInfo.style.display = 'flex';
+    btnProcess.style.display = 'block';
+    showError(err.message || 'Error inesperado. Revisa el archivo o intenta de nuevo.');
+  }
+});
 </script>
 </body>
 </html>
